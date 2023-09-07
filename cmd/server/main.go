@@ -1,7 +1,7 @@
 package main
 
 import (
-	server "Disgord/src/internal/pkg/server"
+	"Disgord/internal/pkg/server"
 	"errors"
 	"github.com/valyala/fasthttp"
 	"html/template"
@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	srv, err := server.New("./src/internal/pkg/server/templates")
+	srv, err := server.New("./internal/pkg/server/templates")
 	if err != nil {
 		log.Fatal(err)
 	}
