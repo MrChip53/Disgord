@@ -31,6 +31,7 @@ func (s *Server) HandleRouter(ctx *fasthttp.RequestCtx) {
 
 	handler, ok := s.routeHandlers[string(ctx.Path())]
 	if !ok {
+		ctx.SetStatusCode(404)
 		s.templates.ExecuteTemplate(ctx, "pages/404", nil)
 		//fmt.Fprintf(ctx, "Disgord boiizzz: %q, %q", ctx.Path(), ctx.RequestURI())
 		return
