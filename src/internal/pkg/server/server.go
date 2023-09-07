@@ -24,6 +24,7 @@ func (s *Server) AddRoute(route string, handler func(template *template.Template
 }
 
 func (s *Server) errorWrapper(ctx *fasthttp.RequestCtx) {
+	ctx.Response.Header.SetContentType("text/html")
 	err := s.handleRouter(ctx)
 
 	if err != nil {
