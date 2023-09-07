@@ -26,6 +26,14 @@ func main() {
 		}
 		return nil
 	})
+	srv.AddRoute("/navbar", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
+		err := template.ExecuteTemplate(ctx, "navbar", nil)
+		if err != nil {
+			log.Print(err)
+			return err
+		}
+		return nil
+	})
 	srv.AddRoute("/error", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
 		return errors.New("failed to do this")
 	})
