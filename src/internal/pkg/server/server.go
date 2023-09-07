@@ -6,20 +6,26 @@ import (
 )
 
 type Server struct {
+	routes map[string]func(ctx *fasthttp.RequestCtx)
 }
 
 func New() (*Server, error) {
-	return &Server{}, nil
+	return &Server{
+		routes: make(map[string]func(ctx *fasthttp.RequestCtx)),
+	}, nil
+}
+
+func (s *Server) AddRoute(route string, handler func(ctx *fasthttp.RequestCtx)) {
+	s.routes[route] = handler
 }
 
 func (s *Server) HandleRouter(ctx *fasthttp.RequestCtx) {
-	switch string(ctx.Path()) {
-	case "/hp":
-		ctx.SetStatusCode(200)
-		ctx.SetBody(nil)
-	default:
+	handler, ok := s.routes[string(ctx.Path())]
+	if !ok {
 		fmt.Fprintf(ctx, "Disgord boiizzz: %q, %q", ctx.Path(), ctx.RequestURI())
+		return
 	}
+	handler(ctx)
 }
 
 func (s *Server) Run() error {
