@@ -95,9 +95,12 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
 	return handler(s.templates, ctx)
 }
 
+func (s *Server) LoadTemplates(templateDirectory string) {
+	s.templates = s.parseTemplates(templateDirectory, nil)
+}
+
 func (s *Server) Run() error {
-	templates := s.parseTemplates(s.templateDirectory, nil)
-	s.templates = templates
+	s.LoadTemplates(s.templateDirectory)
 	err := fasthttp.ListenAndServe(":8080", s.errorWrapper)
 	if err != nil {
 		return err
