@@ -13,12 +13,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv.AddRoute("/hp", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
+	srv.GET("/hp", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
 		ctx.SetStatusCode(200)
 		ctx.SetBody(nil)
 		return nil
 	})
-	srv.AddRoute("/", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
+	srv.GET("/", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
 		err := template.ExecuteTemplate(ctx, "indexPage", nil)
 		if err != nil {
 			log.Print(err)
@@ -26,7 +26,7 @@ func main() {
 		}
 		return nil
 	})
-	srv.AddRoute("/navbar", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
+	srv.GET("/navbar", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
 		err := template.ExecuteTemplate(ctx, "navbar", nil)
 		if err != nil {
 			log.Print(err)
@@ -34,8 +34,19 @@ func main() {
 		}
 		return nil
 	})
-	srv.AddRoute("/error", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
+	srv.GET("/error", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
 		return errors.New("failed to do this")
+	})
+	srv.AddErrorTemplate(404, "404Page")
+	srv.AddErrorTemplate(500, "500Page")
+	srv.Use(func(template *template.Template, ctx *fasthttp.RequestCtx) (bool, error) {
+		if string(ctx.Path()) == "/stop" {
+			ctx.SetBody([]byte("stopped"))
+			return false, nil
+		} else if string(ctx.Path()) == "/stop-error" {
+			return false, errors.New("failed")
+		}
+		return true, nil
 	})
 	err = srv.Run()
 	if err != nil {
