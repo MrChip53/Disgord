@@ -95,12 +95,15 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
 	return handler(s.templates, ctx)
 }
 
-func (s *Server) LoadTemplates(templateDirectory string) {
+func (s *Server) LoadTemplates(templateDirectory string, watch bool) {
+	if watch {
+		go s.watchTemplates(templateDirectory)
+	}
 	s.templates = s.parseTemplates(templateDirectory, nil)
 }
 
-func (s *Server) Run() error {
-	s.LoadTemplates(s.templateDirectory)
+func (s *Server) Run(watchTemplates bool) error {
+	s.LoadTemplates(s.templateDirectory, watchTemplates)
 	err := fasthttp.ListenAndServe(":8080", s.errorWrapper)
 	if err != nil {
 		return err

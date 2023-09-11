@@ -48,7 +48,7 @@ func main() {
 		}
 		return true, nil
 	})
-	err = srv.Run()
+	err = srv.Run(true)
 	if err != nil {
 		log.Fatal(err)
 	}
