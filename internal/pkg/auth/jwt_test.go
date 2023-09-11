@@ -12,11 +12,13 @@ func TestJwtTokens(t *testing.T) {
 		t.Error(err)
 	}
 
-	token, refreshToken, err := GenerateTokens(&JwtPayload{
+	jwt := &JwtPayload{
 		Username: "test",
 		Admin:    true,
 		UserId:   1,
-	})
+	}
+
+	token, refreshToken, err := GenerateTokens(jwt)
 	if err != nil {
 		t.Error(err)
 	}
@@ -50,7 +52,7 @@ func TestJwtTokens(t *testing.T) {
 		t.Error("refresh payload is nil")
 		return
 	}
-	if refreshPayload.JwtToken != token {
-		t.Error("jwtToken doesn't match")
+	if refreshPayload.UserId != jwt.UserId {
+		t.Error("User id in refresh doesn't match")
 	}
 }
