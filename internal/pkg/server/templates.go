@@ -23,7 +23,7 @@ func (s *Server) watchTemplates(rootDir string) {
 	}
 	defer watcher.Close()
 	err = filepath.WalkDir(cleanRoot, func(path string, d fs.DirEntry, err error) error {
-		if !d.IsDir() {
+		if d.IsDir() {
 			return watcher.Add(path)
 		}
 		return nil
