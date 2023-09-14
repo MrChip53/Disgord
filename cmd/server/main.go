@@ -12,7 +12,6 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 var templates *template.Template
@@ -60,62 +59,41 @@ func main() {
 	templates := parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
-	srv, err := server.New("./cmd/server/templates")
+	srv, err := server.New(templates)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func() error) error {
-		start := time.Now().UnixNano()
-		ctx.Response.Header.SetContentType("text/html")
-		err := next()
-		if err != nil {
-			ctx.SetStatusCode(500)
-			err := templates.ExecuteTemplate(ctx, "505Page", nil)
-			if err != nil {
-				ctx.SetStatusCode(500)
-				ctx.SetBody([]byte("500 Internal Server Error"))
-			}
-			return err
-		}
-		log.Println("error running router: ", err)
-		end := time.Now().UnixNano()
-		log.Printf("Request for %s took: %f ms\n", ctx.Path(), float64(end-start)/1000000.0)
-		return nil
-	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func() error) error {
-		ctx.SetStatusCode(200)
-		ctx.SetBody(nil)
-		return nil
-	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func() error) error {
+	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
 		path := string(ctx.Path())
 		if strings.HasPrefix(path, "/assets") {
 			if strings.HasSuffix(path, ".css") {
 				ctx.Response.Header.SetContentType("text/css")
 				ctx.SendFile("./public/" + path[8:])
-				return nil
+				return
 			} else if strings.HasSuffix(path, ".js") {
 				ctx.Response.Header.SetContentType("text/javascript")
 				ctx.SendFile("./public/" + path[8:])
-				return nil
+				return
 			}
 		}
-
-		return next()
+		ctx.Response.Header.SetContentType("text/html")
+		next()
 	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func() error) error {
+	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
 		sessionToken := ctx.Request.Header.Cookie("SessionToken")
 		if len(sessionToken) == 0 {
 			refreshToken := ctx.Request.Header.Cookie("RefreshToken")
 			if len(refreshToken) == 0 {
-				return next()
+				next()
+				return
 			}
 
 			refreshPayload, err := auth.VerifyRefreshToken(string(refreshToken))
 			if err != nil {
 				log.Printf("failed to verify refresh token: %s\n", err)
-				return next()
+				next()
+				return
 			}
 
 			// TODO fetch user info
@@ -129,7 +107,8 @@ func main() {
 			sToken, rToken, err := auth.GenerateTokens(jwtPayload)
 			if err != nil {
 				log.Printf("failed to generate tokens: %s\n", err)
-				return err
+				next()
+				return
 			}
 
 			sCookie, rCookie := createTokenCookies(sToken, rToken)
@@ -141,22 +120,20 @@ func main() {
 		jwtToken, err := auth.VerifyJwtToken(string(sessionToken))
 		if err != nil {
 			log.Printf("failed to verify jwt token: %s\n", err)
-			return next()
+			next()
+			return
 		}
 
 		ctx.SetUserValue("token", jwtToken)
 
-		return next()
-	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func() error) error {
-		if string(ctx.Path()) == "/stop" {
-			ctx.SetBody([]byte("stopped"))
-		} else if string(ctx.Path()) == "/stop-error" {
-			return errors.New("failed")
-		}
-		return next()
+		next()
 	})
 
+	srv.GET("/hp", func(ctx *fasthttp.RequestCtx) error {
+		ctx.SetStatusCode(200)
+		ctx.SetBody(nil)
+		return nil
+	})
 	srv.GET("/", func(ctx *fasthttp.RequestCtx) error {
 		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
@@ -187,6 +164,7 @@ func main() {
 	})
 
 	srv.SetErrorTemplate(404, "404Page")
+	srv.SetErrorTemplate(500, "500Page")
 	err = srv.Run()
 	if err != nil {
 		log.Fatal(err)

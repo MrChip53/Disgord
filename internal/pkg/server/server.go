@@ -6,25 +6,25 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 )
 
 type HandlerFunc = func(ctx *fasthttp.RequestCtx) error
-type MiddlewareFunc = func(ctx *fasthttp.RequestCtx, next func() error) error
+type MiddlewareFunc = func(ctx *fasthttp.RequestCtx, next func())
 
 type Server struct {
-	routeHandlers     map[string]HandlerFunc
-	errorTemplates    map[int]string
-	middlewares       []MiddlewareFunc
-	mwLock            sync.Mutex
-	templates         *template.Template
-	templateDirectory string
+	routeHandlers  map[string]HandlerFunc
+	errorTemplates map[int]string
+	middlewares    []MiddlewareFunc
+	mwLock         sync.Mutex
+	templates      *template.Template
 }
 
-func New(templateDirectory string) (*Server, error) {
+func New(templates *template.Template) (*Server, error) {
 	s := &Server{
-		routeHandlers:     make(map[string]HandlerFunc),
-		errorTemplates:    make(map[int]string),
-		templateDirectory: templateDirectory,
+		routeHandlers:  make(map[string]HandlerFunc),
+		errorTemplates: make(map[int]string),
+		templates:      templates,
 	}
 	return s, nil
 }
@@ -61,6 +61,17 @@ func (s *Server) SetErrorTemplate(statusCode int, templateName string) {
 	s.errorTemplates[statusCode] = templateName
 }
 
+func (s *Server) error(errorCode int, ctx *fasthttp.RequestCtx) {
+	ctx.SetStatusCode(errorCode)
+	templ, ok := s.errorTemplates[errorCode]
+	if ok {
+		err := s.templates.ExecuteTemplate(ctx, templ, nil)
+		if err != nil {
+			log.Println("error executing template: ", err)
+		}
+	}
+}
+
 func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool) {
 	handler, ok := s.routeHandlers[method+":"+route]
 
@@ -73,57 +84,37 @@ func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool
 }
 
 func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) {
+	start := time.Now().UnixNano()
 	s.mwLock.Lock()
 	defer s.mwLock.Unlock()
 
-	index := 0
+	index := -1
 
-	var next func() error
-	next = func() error {
+	var next func()
+	next = func() {
 		index++
 		if index < len(s.middlewares) {
-			err := s.middlewares[index](ctx, next)
-			if err != nil {
-				index = len(s.middlewares)
-				return nil
-			}
-		} else {
-			// TODO Regex match strings for parameters in route
-			method := string(ctx.Method())
-			handler, ok := s.getRouteHandler(method, string(ctx.Path()))
-			if !ok {
-				ctx.SetStatusCode(404)
-				templ, ok := s.errorTemplates[404]
-				if ok {
-					err := s.templates.ExecuteTemplate(ctx, templ, nil)
-					if err != nil {
-						log.Println("error executing template: ", err)
-						ctx.SetStatusCode(404)
-					}
-				}
-				return nil
-			}
-			err := handler(ctx)
-			if err != nil {
-				ctx.SetStatusCode(500)
-				templ, ok := s.errorTemplates[500]
-				if ok {
-					err := s.templates.ExecuteTemplate(ctx, templ, nil)
-					if err != nil {
-						log.Println("error executing template: ", err)
-						ctx.SetStatusCode(500)
-					}
-				}
-				return nil
-			}
+			s.middlewares[index](ctx, next)
+			return
 		}
-		return nil
+		// TODO Regex match strings for parameters in route
+		method := string(ctx.Method())
+		handler, ok := s.getRouteHandler(method, string(ctx.Path()))
+		if !ok {
+			log.Println("no handler found for route: ", string(ctx.Path()))
+			s.error(404, ctx)
+			return
+		}
+		err := handler(ctx)
+		if err != nil {
+			log.Println("error running handler: ", err)
+			s.error(500, ctx)
+		}
 	}
 
-	err := next()
-	if err != nil {
-
-	}
+	next()
+	end := time.Now().UnixNano()
+	log.Printf("Request for %s took: %f ms\n", ctx.Path(), float64(end-start)/1000000.0)
 }
 
 func (s *Server) Run() error {
