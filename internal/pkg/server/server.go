@@ -6,11 +6,10 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"time"
 )
 
-type HandlerFunc = func(template *template.Template, ctx *fasthttp.RequestCtx) error
-type MiddlewareFunc = func(template *template.Template, ctx *fasthttp.RequestCtx, next func() error) error
+type HandlerFunc = func(ctx *fasthttp.RequestCtx) error
+type MiddlewareFunc = func(ctx *fasthttp.RequestCtx, next func() error) error
 
 type Server struct {
 	routeHandlers     map[string]HandlerFunc
@@ -30,31 +29,27 @@ func New(templateDirectory string) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) addRoute(route string, method string, handler func(template *template.Template, ctx *fasthttp.RequestCtx) error) {
+func (s *Server) addRoute(route string, method string, handler func(ctx *fasthttp.RequestCtx) error) {
 	s.routeHandlers[method+":"+route] = handler
 }
 
-func (s *Server) AddErrorTemplate(errorCode int, templateName string) {
-	s.errorTemplates[errorCode] = templateName
-}
-
-func (s *Server) GET(route string, handler func(template *template.Template, ctx *fasthttp.RequestCtx) error) {
+func (s *Server) GET(route string, handler func(ctx *fasthttp.RequestCtx) error) {
 	s.addRoute(route, "GET", handler)
 }
 
-func (s *Server) POST(route string, handler func(template *template.Template, ctx *fasthttp.RequestCtx) error) {
+func (s *Server) POST(route string, handler func(ctx *fasthttp.RequestCtx) error) {
 	s.addRoute(route, "POST", handler)
 }
 
-func (s *Server) PUT(route string, handler func(template *template.Template, ctx *fasthttp.RequestCtx) error) {
+func (s *Server) PUT(route string, handler func(ctx *fasthttp.RequestCtx) error) {
 	s.addRoute(route, "PUT", handler)
 }
 
-func (s *Server) DELETE(route string, handler func(template *template.Template, ctx *fasthttp.RequestCtx) error) {
+func (s *Server) DELETE(route string, handler func(ctx *fasthttp.RequestCtx) error) {
 	s.addRoute(route, "DELETE", handler)
 }
 
-func (s *Server) PATCH(route string, handler func(template *template.Template, ctx *fasthttp.RequestCtx) error) {
+func (s *Server) PATCH(route string, handler func(ctx *fasthttp.RequestCtx) error) {
 	s.addRoute(route, "PATCH", handler)
 }
 
@@ -62,20 +57,8 @@ func (s *Server) Use(middleware MiddlewareFunc) {
 	s.middlewares = append(s.middlewares, middleware)
 }
 
-func (s *Server) errorWrapper(ctx *fasthttp.RequestCtx) {
-	start := time.Now().UnixNano()
-	ctx.Response.Header.SetContentType("text/html")
-	err := s.handleRouter(ctx)
-
-	if err != nil {
-		ctx.SetStatusCode(500)
-		templ, ok := s.errorTemplates[500]
-		if ok {
-			s.templates.ExecuteTemplate(ctx, templ, nil)
-		}
-	}
-	end := time.Now().UnixNano()
-	log.Printf("Request for %s took: %f ms\n", ctx.Path(), float64(end-start)/1000000.0)
+func (s *Server) SetErrorTemplate(statusCode int, templateName string) {
+	s.errorTemplates[statusCode] = templateName
 }
 
 func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool) {
@@ -89,7 +72,7 @@ func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool
 	return handler, ok
 }
 
-func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
+func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) {
 	s.mwLock.Lock()
 	defer s.mwLock.Unlock()
 
@@ -99,10 +82,10 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
 	next = func() error {
 		index++
 		if index < len(s.middlewares) {
-			err := s.middlewares[index](s.templates, ctx, next)
+			err := s.middlewares[index](ctx, next)
 			if err != nil {
 				index = len(s.middlewares)
-				return err
+				return nil
 			}
 		} else {
 			// TODO Regex match strings for parameters in route
@@ -112,28 +95,39 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
 				ctx.SetStatusCode(404)
 				templ, ok := s.errorTemplates[404]
 				if ok {
-					s.templates.ExecuteTemplate(ctx, templ, nil)
+					err := s.templates.ExecuteTemplate(ctx, templ, nil)
+					if err != nil {
+						log.Println("error executing template: ", err)
+						ctx.SetStatusCode(404)
+					}
 				}
 				return nil
 			}
-			return handler(s.templates, ctx)
+			err := handler(ctx)
+			if err != nil {
+				ctx.SetStatusCode(500)
+				templ, ok := s.errorTemplates[500]
+				if ok {
+					err := s.templates.ExecuteTemplate(ctx, templ, nil)
+					if err != nil {
+						log.Println("error executing template: ", err)
+						ctx.SetStatusCode(500)
+					}
+				}
+				return nil
+			}
 		}
 		return nil
 	}
 
-	return next()
-}
+	err := next()
+	if err != nil {
 
-func (s *Server) LoadTemplates(templateDirectory string, watch bool) {
-	if watch {
-		go s.watchTemplates(templateDirectory)
 	}
-	s.templates = s.parseTemplates(templateDirectory, nil)
 }
 
-func (s *Server) Run(watchTemplates bool) error {
-	s.LoadTemplates(s.templateDirectory, watchTemplates)
-	err := fasthttp.ListenAndServe(":8080", s.errorWrapper)
+func (s *Server) Run() error {
+	err := fasthttp.ListenAndServe(":8080", s.handleRouter)
 	if err != nil {
 		return err
 	}
