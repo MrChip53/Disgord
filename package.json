@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "npx tailwind build -i ./internal/pkg/server/templates/main.css -o ./public/main.css",
-    "dev": "npx tailwind build -i ./internal/pkg/server/templates/main.css -o ./public/main.css --watch"
+    "build": "npx tailwind build -i ./cmd/server/templates/main.css -o ./public/main.css",
+    "dev": "npx tailwind build -i ./cmd/server/templates/main.css -o ./public/main.css --watch"
   },
   "author": "",
   "license": "ISC",
