@@ -2,9 +2,16 @@
     {{template "openHTML" .}}
         <form class="flex items-center justify-center w-screen h-screen bg-neutral-700" hx-boost="true" action="/login" method="post">
             <div class="flex flex-col w-1/2">
-                <input class="w-full mb-4 bg-neutral-600" type="text" name="username" placeholder="Username" />
-                <input class="w-full mb-4 bg-neutral-600" type="password" name="password" placeholder="Password" />
-                <input class="w-full" type="submit" name="submit" value="Login" />
+                <div class="flex justify-center w-full">
+                    <h3 class=" font-bold">Login</h3>
+                </div>
+                <div class="w-full py-2 px-4 rounded-md bg-neutral-600 mb-4">
+                    <input class="w-full bg-transparent outline-none" type="text" name="username" placeholder="Username" />
+                </div>
+                <div class="w-full py-2 px-4 rounded-md bg-neutral-600 mb-4">
+                    <input class="w-full bg-transparent outline-none" type="password" name="password" placeholder="Password" />
+                </div>
+                <input class="cursor-pointer w-full py-2 px-4 rounded-md bg-neutral-600 hover:bg-neutral-500 transition-colors ease-in-out" type="submit" name="submit" value="Login" />
             </div>
         </form>
     {{template "closeHTML" .}}
