@@ -1,11 +1,10 @@
 {{ define "serverBar" }}
 <div class="flex w-screen h-screen">
-    <nav class="relative w-[72px] shrink-0 bg-primary">
-        {{if .authed}}
-        <a href="/logout">Logout</a>
-        {{else}}
-        <a href="/login">Login</a>
-        {{end}}
+    <nav class="flex flex-col py-2 gap-2 items-center relative w-[72px] shrink-0 bg-primary">
+        <div class="flex items-center justify-center w-12 h-12 bg-neutral-800 rounded-md relative">
+            <a class="absolute top-0 bottom-0 left-0 right-0" href="/logout"></a>
+            L
+        </div>
     </nav>
     <div class="flex grow bg-accent">
         {{template "channelMenu" .}}

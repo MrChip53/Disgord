@@ -1,4 +1,6 @@
 {{define "closeHTML"}}
-    </body>
-    </html>
+    {{ if not .isHXRequest }}
+        </body>
+        </html>
+    {{ end }}
 {{end}}

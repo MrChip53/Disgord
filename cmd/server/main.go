@@ -60,6 +60,11 @@ func watchTemplates(rootDir string) {
 	}
 }
 
+func addHXRequest(data map[string]any, ctx *fasthttp.RequestCtx) map[string]any {
+	data["isHXRequest"] = ctx.UserValue("isHXRequest").(bool)
+	return data
+}
+
 func main() {
 	users = make(map[string]User)
 	templates = parseTemplates("./cmd/server/templates", nil)
@@ -105,7 +110,7 @@ func main() {
 			// TODO fetch user info
 
 			jwtPayload := &auth.JwtPayload{
-				Username: "",
+				Username: "token refreshed",
 				Admin:    false,
 				UserId:   refreshPayload.UserId,
 			}
@@ -141,6 +146,10 @@ func main() {
 		}
 		next()
 	})
+	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
+		ctx.SetUserValue("isHXRequest", string(ctx.Request.Header.Peek("HX-Request")) == "true")
+		next()
+	})
 
 	srv.GET("/hp", func(ctx *fasthttp.RequestCtx) error {
 		ctx.SetStatusCode(200)
@@ -150,10 +159,7 @@ func main() {
 	srv.GET("/", func(ctx *fasthttp.RequestCtx) error {
 		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
-		dataMap["authed"] = token != nil
-		if token != nil {
-			dataMap["username"] = token.(*auth.JwtPayload).Username
-		}
+		dataMap["username"] = token.(*auth.JwtPayload).Username
 		dataMap["title"] = "Disgord"
 
 		curServer := make(map[string]any)
@@ -168,7 +174,7 @@ func main() {
 		curServer["Channels"] = channels
 		dataMap["Server"] = curServer
 
-		err := templates.ExecuteTemplate(ctx, "indexPage", dataMap)
+		err := templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
 		if err != nil {
 			log.Print(err)
 			return err
@@ -176,7 +182,8 @@ func main() {
 		return nil
 	})
 	srv.GET("/login", func(ctx *fasthttp.RequestCtx) error {
-		err := templates.ExecuteTemplate(ctx, "loginPage", nil)
+		dataMap := make(map[string]any)
+		err := templates.ExecuteTemplate(ctx, "loginPage", addHXRequest(dataMap, ctx))
 		if err != nil {
 			log.Print(err)
 			return err
