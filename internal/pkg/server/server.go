@@ -5,16 +5,18 @@ import (
 	"html/template"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
 type HandlerFunc = func(template *template.Template, ctx *fasthttp.RequestCtx) error
-type MiddlewareFunc = func(template *template.Template, ctx *fasthttp.RequestCtx) (bool, error)
+type MiddlewareFunc = func(template *template.Template, ctx *fasthttp.RequestCtx, next func() error) error
 
 type Server struct {
 	routeHandlers     map[string]HandlerFunc
 	errorTemplates    map[int]string
 	middlewares       []MiddlewareFunc
+	mwLock            sync.Mutex
 	templates         *template.Template
 	templateDirectory string
 }
@@ -23,7 +25,6 @@ func New(templateDirectory string) (*Server, error) {
 	s := &Server{
 		routeHandlers:     make(map[string]HandlerFunc),
 		errorTemplates:    make(map[int]string),
-		middlewares:       make([]MiddlewareFunc, 0),
 		templateDirectory: templateDirectory,
 	}
 	return s, nil
@@ -89,27 +90,38 @@ func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool
 }
 
 func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
-	for _, mw := range s.middlewares {
-		shouldContinue, err := mw(s.templates, ctx)
-		if err != nil {
-			return err
-		}
-		if !shouldContinue {
-			return nil
-		}
-	}
+	s.mwLock.Lock()
+	defer s.mwLock.Unlock()
 
-	method := string(ctx.Method())
-	handler, ok := s.getRouteHandler(method, string(ctx.Path()))
-	if !ok {
-		ctx.SetStatusCode(404)
-		templ, ok := s.errorTemplates[404]
-		if ok {
-			s.templates.ExecuteTemplate(ctx, templ, nil)
+	index := 0
+
+	var next func() error
+	next = func() error {
+		index++
+		if index < len(s.middlewares) {
+			err := s.middlewares[index](s.templates, ctx, next)
+			if err != nil {
+				index = len(s.middlewares)
+				return err
+			}
+		} else {
+			// TODO Regex match strings for parameters in route
+			method := string(ctx.Method())
+			handler, ok := s.getRouteHandler(method, string(ctx.Path()))
+			if !ok {
+				ctx.SetStatusCode(404)
+				templ, ok := s.errorTemplates[404]
+				if ok {
+					s.templates.ExecuteTemplate(ctx, templ, nil)
+				}
+				return nil
+			}
+			return handler(s.templates, ctx)
 		}
 		return nil
 	}
-	return handler(s.templates, ctx)
+
+	return next()
 }
 
 func (s *Server) LoadTemplates(templateDirectory string, watch bool) {

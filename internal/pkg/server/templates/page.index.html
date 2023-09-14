@@ -1,9 +1,6 @@
 {{ define "indexPage" }}
     {{template "openHTML" .}}
     {{template "navbar"}}
-    <div>
-        {{ .authed }}
-        Index Page for Disgord Boizzz
-    </div>
+    {{ template "serverBar" . }}
     {{template "closeHTML"}}
 {{ end }}

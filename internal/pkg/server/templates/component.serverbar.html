@@ -1,3 +1,17 @@
 {{ define "serverBar" }}
+<nav class="relative w-[72px]">
 
+</nav>
+<div class="grid grid-cols-12">
+    <div class="col-span-2 bg-primary">
+        {{if .authed}}
+        <a href="/logout">Logout</a>
+        {{else}}
+        <a href="/login">Login</a>
+        {{end}}
+    </div>
+    <div class="col-span-10 bg-accent">
+        Hi
+    </div>
+</div>
 {{ end }}
