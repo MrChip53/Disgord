@@ -16,8 +16,8 @@ import (
 
 var templates *template.Template
 
-func parseTemplates(directory string, funcMap interface{}) *template.Template {
-	return template.Must(template.ParseGlob(directory + "/*.html"))
+func parseTemplates(directory string, funcMap template.FuncMap) *template.Template {
+	return template.Must(template.New("").Funcs(funcMap).ParseGlob(directory + "/*.html"))
 }
 
 func watchTemplates(rootDir string) {
@@ -56,7 +56,7 @@ func watchTemplates(rootDir string) {
 }
 
 func main() {
-	templates := parseTemplates("./cmd/server/templates", nil)
+	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
 	srv, err := server.New(templates)
@@ -139,6 +139,19 @@ func main() {
 		token := ctx.UserValue("token")
 		dataMap["authed"] = token != nil
 		dataMap["title"] = "Disgord"
+
+		curServer := make(map[string]any)
+		channels := make(map[string][]string)
+		generalChannels := []string{"general", "off-topic", "bot", "spam", "game"}
+		textChannels := []string{"Test Text", "Test Text 2"}
+		voiceChannels := []string{"Test Voice", "Test Voice 2"}
+		channels["General"] = generalChannels
+		channels["Text Channels"] = textChannels
+		channels["Voice Channels"] = voiceChannels
+
+		curServer["Channels"] = channels
+		dataMap["Server"] = curServer
+
 		err := templates.ExecuteTemplate(ctx, "indexPage", dataMap)
 		if err != nil {
 			log.Print(err)

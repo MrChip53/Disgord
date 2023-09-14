@@ -1,5 +1,5 @@
 {{ define "serverBar" }}
-<div class="flex w-100 h-100">
+<div class="flex w-screen h-screen">
     <nav class="relative w-[72px] shrink-0 bg-primary">
         {{if .authed}}
         <a href="/logout">Logout</a>
@@ -8,11 +8,7 @@
         {{end}}
     </nav>
     <div class="flex grow bg-accent">
-        <div class="flex flex-col w-[240px] flex-[0_0_auto] bg-black">
-            <nav class="flex justify-start items-stretch">
-
-            </nav>
-        </div>
+        {{template "channelMenu" .Server.Channels}}
     </div>
 </div>
 {{ end }}

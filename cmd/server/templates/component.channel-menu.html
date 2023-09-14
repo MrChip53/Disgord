@@ -1,0 +1,33 @@
+{{ define "channelMenu" }}
+<div class="flex flex-col min-h-0 w-[240px] bg-neutral-700">
+    <nav class="flex flex-col min-h-0 flex-shrink flex-grow-0 justify-start items-stretch relative">
+        <div class="m-0 p-0">
+            <header class="py-3 px-4 relative cursor-pointer hover:bg-neutral-600 transition-colors ease-in-out">
+                <div class="flex items-center h-6">
+                    <div class="flex-1">
+                        Server Name
+                    </div>
+                    <div class="relative">
+                        V
+                    </div>
+                </div>
+            </header>
+        </div>
+        <div class="min-h-0 overflow-x-hidden overflow-y-scroll">
+            <ul class="relative list-none pt-4">
+            {{ range $key, $channels := . }}
+                <li class="ms-1 me-2 hover:text-white/50 transition-colors ease-in-out cursor-pointer select-none"><strong>{{ $key }}</strong></li>
+                {{ range $channel := $channels }}
+                <li class="rounded-md py-2 px-3 mx-2 hover:bg-neutral-600 transition-colors ease-in-out cursor-pointer select-none">#{{ $channel }}</li>
+                {{ end }}
+            {{ end }}
+            </ul>
+        </div>
+    </nav>
+    <section class="flex-shrink-0 flex-grow">
+        <div class="flex items-center px-2 h-[52px]">
+            Username
+        </div>
+    </section>
+</div>
+{{ end }}
