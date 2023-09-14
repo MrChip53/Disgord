@@ -151,6 +151,9 @@ func main() {
 		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
 		dataMap["authed"] = token != nil
+		if token != nil {
+			dataMap["username"] = token.(*auth.JwtPayload).Username
+		}
 		dataMap["title"] = "Disgord"
 
 		curServer := make(map[string]any)
@@ -205,10 +208,17 @@ func main() {
 	})
 
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
-		ctx.PostArgs()
+		args := ctx.PostArgs()
+		if !args.Has("username") || !args.Has("password") {
+			return nil
+		}
+
+		username := string(args.Peek("username"))
+		password := string(args.Peek("password"))
+		_ = password
 
 		jwtPayload := &auth.JwtPayload{
-			Username: "",
+			Username: username,
 			Admin:    false,
 			UserId:   1,
 		}

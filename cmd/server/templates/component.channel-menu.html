@@ -1,6 +1,6 @@
 {{ define "channelMenu" }}
 <div class="flex flex-col min-h-0 w-[240px] bg-neutral-700">
-    <nav class="flex flex-col min-h-0 flex-shrink flex-grow-0 justify-start items-stretch relative">
+    <nav class="flex flex-col min-h-0 flex-shrink flex-grow justify-start items-stretch relative">
         <div class="m-0 p-0">
             <header class="py-3 px-4 relative cursor-pointer hover:bg-neutral-600 transition-colors ease-in-out">
                 <div class="flex items-center h-6">
@@ -13,9 +13,9 @@
                 </div>
             </header>
         </div>
-        <div class="min-h-0 overflow-x-hidden overflow-y-scroll">
+        <div class="min-h-0 overflow-x-hidden overflow-y-auto">
             <ul class="relative list-none pt-4">
-            {{ range $key, $channels := . }}
+            {{ range $key, $channels := .Server.Channels }}
                 <li class="ms-1 me-2 hover:text-white/50 transition-colors ease-in-out cursor-pointer select-none"><strong>{{ $key }}</strong></li>
                 {{ range $channel := $channels }}
                 <li class="rounded-md py-2 px-3 mx-2 hover:bg-neutral-600 transition-colors ease-in-out cursor-pointer select-none">#{{ $channel }}</li>
@@ -24,9 +24,9 @@
             </ul>
         </div>
     </nav>
-    <section class="flex-shrink-0 flex-grow">
+    <section class="flex-shrink-0 flex-grow-0">
         <div class="flex items-center px-2 h-[52px]">
-            Username
+            Welcome,&nbsp;<span class="font-medium">{{ .username }}</span>!
         </div>
     </section>
 </div>
