@@ -35,9 +35,9 @@ func main() {
 	srv.GET("/assets/*", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
 		file := string(ctx.Path())[8:]
 		if strings.HasSuffix(file, ".css") {
-			ctx.Response.Header.Set("Content-Type", "text/css")
+			ctx.Response.Header.SetContentType("text/css")
 		} else if strings.HasSuffix(file, ".js") {
-			ctx.Response.Header.Set("Content-Type", "text/javascript")
+			ctx.Response.Header.SetContentType("text/javascript")
 		}
 		ctx.SendFile("./public/" + file)
 		return nil

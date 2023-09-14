@@ -3,7 +3,9 @@ package server
 import (
 	"github.com/valyala/fasthttp"
 	"html/template"
+	"log"
 	"strings"
+	"time"
 )
 
 type HandlerFunc = func(template *template.Template, ctx *fasthttp.RequestCtx) error
@@ -60,6 +62,7 @@ func (s *Server) Use(middleware MiddlewareFunc) {
 }
 
 func (s *Server) errorWrapper(ctx *fasthttp.RequestCtx) {
+	start := time.Now().UnixNano()
 	ctx.Response.Header.SetContentType("text/html")
 	err := s.handleRouter(ctx)
 
@@ -70,6 +73,8 @@ func (s *Server) errorWrapper(ctx *fasthttp.RequestCtx) {
 			s.templates.ExecuteTemplate(ctx, templ, nil)
 		}
 	}
+	end := time.Now().UnixNano()
+	log.Printf("Request for %s took: %f ms\n", ctx.Path(), float64(end-start)/1000000.0)
 }
 
 func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool) {
