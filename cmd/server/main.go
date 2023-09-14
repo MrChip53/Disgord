@@ -14,7 +14,12 @@ import (
 	"strings"
 )
 
+type User struct {
+	username string
+}
+
 var templates *template.Template
+var users map[string]User
 
 func parseTemplates(directory string, funcMap template.FuncMap) *template.Template {
 	return template.Must(template.New("").Funcs(funcMap).ParseGlob(directory + "/*.html"))
@@ -56,6 +61,7 @@ func watchTemplates(rootDir string) {
 }
 
 func main() {
+	users = make(map[string]User)
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
@@ -111,7 +117,7 @@ func main() {
 				return
 			}
 
-			sCookie, rCookie := createTokenCookies(sToken, rToken)
+			sCookie, rCookie := createTokenCookies(sToken, rToken, false)
 			ctx.Response.Header.SetCookie(sCookie)
 			ctx.Response.Header.SetCookie(rCookie)
 			ctx.SetUserValue("token", jwtPayload)
@@ -126,6 +132,13 @@ func main() {
 
 		ctx.SetUserValue("token", jwtToken)
 
+		next()
+	})
+	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
+		if ctx.UserValue("token") == nil && string(ctx.Path()) != "/login" {
+			ctx.Redirect("/login", 302)
+			return
+		}
 		next()
 	})
 
@@ -159,6 +172,21 @@ func main() {
 		}
 		return nil
 	})
+	srv.GET("/login", func(ctx *fasthttp.RequestCtx) error {
+		err := templates.ExecuteTemplate(ctx, "loginPage", nil)
+		if err != nil {
+			log.Print(err)
+			return err
+		}
+		return nil
+	})
+	srv.GET("/logout", func(ctx *fasthttp.RequestCtx) error {
+		sCookie, rCookie := createTokenCookies("", "", true)
+		ctx.Response.Header.SetCookie(sCookie)
+		ctx.Response.Header.SetCookie(rCookie)
+		ctx.Redirect("/", 302)
+		return nil
+	})
 	srv.GET("/navbar", func(ctx *fasthttp.RequestCtx) error {
 		if ctx.UserValue("token") == nil {
 			ctx.Redirect("/", 302)
@@ -174,6 +202,28 @@ func main() {
 	})
 	srv.GET("/error", func(ctx *fasthttp.RequestCtx) error {
 		return errors.New("failed to do this")
+	})
+
+	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
+		ctx.PostArgs()
+
+		jwtPayload := &auth.JwtPayload{
+			Username: "",
+			Admin:    false,
+			UserId:   1,
+		}
+
+		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
+		if err != nil {
+			return err
+		}
+
+		sCookie, rCookie := createTokenCookies(sToken, rToken, false)
+		ctx.Response.Header.SetCookie(sCookie)
+		ctx.Response.Header.SetCookie(rCookie)
+
+		ctx.Redirect("/", 302)
+		return nil
 	})
 
 	srv.SetErrorTemplate(404, "404Page")
