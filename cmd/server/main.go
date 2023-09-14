@@ -7,6 +7,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"html/template"
 	"log"
+	"strings"
 )
 
 func main() {
@@ -23,11 +24,22 @@ func main() {
 		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
 		dataMap["authed"] = token != nil
+		dataMap["title"] = "Disgord"
 		err := template.ExecuteTemplate(ctx, "indexPage", dataMap)
 		if err != nil {
 			log.Print(err)
 			return err
 		}
+		return nil
+	})
+	srv.GET("/assets/*", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
+		file := string(ctx.Path())[8:]
+		if strings.HasSuffix(file, ".css") {
+			ctx.Response.Header.Set("Content-Type", "text/css")
+		} else if strings.HasSuffix(file, ".js") {
+			ctx.Response.Header.Set("Content-Type", "text/javascript")
+		}
+		ctx.SendFile("./public/" + file)
 		return nil
 	})
 	srv.GET("/navbar", func(template *template.Template, ctx *fasthttp.RequestCtx) error {
@@ -69,23 +81,8 @@ func main() {
 				return true, err
 			}
 
-			sCookie := &fasthttp.Cookie{}
-			sCookie.SetKey("SessionToken")
-			sCookie.SetValue(sToken)
-			sCookie.SetPath("/")
-			sCookie.SetDomain("")
-			sCookie.SetMaxAge(60)
-			sCookie.SetSameSite(fasthttp.CookieSameSiteStrictMode)
-			sCookie.SetSecure(true)
+			sCookie, rCookie := createTokenCookies(sToken, rToken)
 			ctx.Response.Header.SetCookie(sCookie)
-			rCookie := &fasthttp.Cookie{}
-			rCookie.SetKey("RefreshToken")
-			rCookie.SetValue(rToken)
-			rCookie.SetPath("/")
-			rCookie.SetDomain("")
-			rCookie.SetMaxAge(60)
-			rCookie.SetSameSite(fasthttp.CookieSameSiteStrictMode)
-			rCookie.SetSecure(true)
 			ctx.Response.Header.SetCookie(rCookie)
 			ctx.SetUserValue("token", jwtPayload)
 		}
@@ -97,6 +94,16 @@ func main() {
 
 		ctx.SetUserValue("token", jwtToken)
 
+		return true, nil
+	})
+	srv.Use(func(template *template.Template, ctx *fasthttp.RequestCtx) (bool, error) {
+		path := string(ctx.Path())
+		if path != "/" && path != "/favicon.ico" &&
+			path != "/hp" && !strings.HasPrefix(path, "/assets/") &&
+			ctx.UserValue("token") == nil {
+			ctx.Redirect("/", 302)
+			return false, nil
+		}
 		return true, nil
 	})
 	srv.Use(func(template *template.Template, ctx *fasthttp.RequestCtx) (bool, error) {

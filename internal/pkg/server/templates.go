@@ -38,7 +38,7 @@ func (s *Server) watchTemplates(rootDir string) {
 				return
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write {
-				fmt.Println("File modified: ", event.Name, " reloading templates")
+				fmt.Println("Reloading templates: ", event.Name, " reloading templates")
 				s.templates = s.parseTemplates(rootDir, nil)
 			}
 		case err, ok := <-watcher.Errors:

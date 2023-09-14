@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/valyala/fasthttp"
 	"html/template"
+	"strings"
 )
 
 type HandlerFunc = func(template *template.Template, ctx *fasthttp.RequestCtx) error
@@ -71,6 +72,17 @@ func (s *Server) errorWrapper(ctx *fasthttp.RequestCtx) {
 	}
 }
 
+func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool) {
+	handler, ok := s.routeHandlers[method+":"+route]
+
+	if !ok && strings.Contains(route, ".") {
+		lastIndex := strings.LastIndex(route, "/")
+		return s.getRouteHandler(method, route[:lastIndex+1]+"*")
+	}
+
+	return handler, ok
+}
+
 func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
 	for _, mw := range s.middlewares {
 		shouldContinue, err := mw(s.templates, ctx)
@@ -83,7 +95,7 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) error {
 	}
 
 	method := string(ctx.Method())
-	handler, ok := s.routeHandlers[method+":"+string(ctx.Path())]
+	handler, ok := s.getRouteHandler(method, string(ctx.Path()))
 	if !ok {
 		ctx.SetStatusCode(404)
 		templ, ok := s.errorTemplates[404]
