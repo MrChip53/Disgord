@@ -1,6 +1,9 @@
 package sse
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+)
 
 type Client chan []byte
 
@@ -31,11 +34,12 @@ func (s *SSEServer) run() {
 			select {
 			case cl := <-s.connecting:
 				s.clients[cl] = true
-
+				log.Printf("new sse client connected. connected clients: %d\n", len(s.clients))
 			case cl := <-s.disconnecting:
 				delete(s.clients, cl)
-
+				log.Printf("sse client disconnected. connected clients: %d\n", len(s.clients))
 			case event := <-s.event:
+				log.Printf("new sse event. event: %s\n", string(event))
 				for cl := range s.clients {
 					// TODO: non-blocking broadcast
 					select {
