@@ -354,7 +354,9 @@ func main() {
 
 		user := users[userId]
 		if user.password != passHash {
-			return errors.New("invalid password")
+			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+			ctx.Response.Header.Set("HX-Reswap", "none")
+			return nil
 		}
 
 		jwtPayload := &auth.JwtPayload{

@@ -9,9 +9,13 @@
                     <input class="w-full bg-transparent outline-none" type="text" name="username" placeholder="Username" />
                 </div>
                 <div class="w-full py-2 px-4 rounded-md bg-neutral-600 mb-4">
-                    <input class="w-full bg-transparent outline-none" type="password" name="password" placeholder="Password" />
+                    <input
+                            _="on loginFailed console.log(me) end"
+                            class="w-full bg-transparent outline-none" type="password" name="password" placeholder="Password" />
                 </div>
-                <input class="cursor-pointer w-full py-2 px-4 rounded-md bg-neutral-600 hover:bg-neutral-500 transition-colors ease-in-out" type="submit" name="submit" value="Login" />
+                <input
+                        class="cursor-pointer w-full py-2 px-4 rounded-md bg-neutral-600 hover:bg-neutral-500 transition-colors ease-in-out"
+                        type="submit" name="submit" value="Login" />
             </div>
         </form>
     {{template "closeHTML" .}}
