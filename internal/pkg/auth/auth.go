@@ -21,9 +21,9 @@ type Argon2Params struct {
 func HashPassword(password string) (string, error) {
 	params := &Argon2Params{
 		argon2id:    true,
-		memory:      128 * 1024,
-		iterations:  15,
-		parallelism: 6,
+		memory:      4 * 1024,
+		iterations:  5,
+		parallelism: 2,
 		saltLength:  64,
 		keyLength:   128,
 	}
