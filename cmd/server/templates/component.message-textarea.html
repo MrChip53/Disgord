@@ -6,8 +6,7 @@
             on keydown if event.keyCode is 13 and not event.shiftKey then event.preventDefault() end"
             hx-post="/message/new"
             hx-trigger="keyup[keyCode==13&&!shiftKey]"
-            hx-target="#main-window_messageWindow"
-            hx-swap="beforeend"
+            hx-swap="none"
             class="w-full h-full box-border bg-transparent outline-none resize-none"
             placeholder="Message"
             name="message"></textarea>

@@ -3,6 +3,9 @@ package main
 import (
 	"Disgord/internal/pkg/auth"
 	"Disgord/internal/pkg/server"
+	"Disgord/internal/pkg/sse"
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
@@ -80,6 +83,8 @@ func main() {
 	users = make(map[string]User)
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
+
+	sseServer := sse.New()
 
 	srv, err := server.New(templates)
 	if err != nil {
@@ -224,6 +229,33 @@ func main() {
 		return nil
 	})
 
+	srv.GET("/messages/sse", func(ctx *fasthttp.RequestCtx) error {
+		ctx.Response.Header.Set("Cache-Control", "no-cache")
+		ctx.Response.Header.Set("Connection", "keep-alive")
+		ctx.Response.Header.Set("Content-Type", "text/event-stream")
+
+		ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+			client := sseServer.MakeClient()
+			defer sseServer.DestroyClient(client)
+
+			for {
+				select {
+				case event := <-client:
+					w.Write([]byte("id: 1\n"))
+					w.Write([]byte("event: newMessage\n"))
+					str := string(event)
+					_ = str
+					_, err := w.Write(event)
+					if err != nil {
+						return
+					}
+					w.Flush()
+				}
+			}
+		})
+		return nil
+	})
+
 	srv.POST("/message/new", func(ctx *fasthttp.RequestCtx) error {
 		args := ctx.PostArgs()
 		if !args.Has("message") {
@@ -242,7 +274,16 @@ func main() {
 		dataMap["Message"] = msg
 
 		ctx.Response.Header.Add("HX-Trigger", "clearMsgTextarea")
-		return templates.ExecuteTemplate(ctx, "message", addHXRequest(dataMap, ctx))
+
+		var buf bytes.Buffer
+		err := templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
+		ctx.Write(buf.Bytes())
+		if err == nil {
+			sseBytes := []byte(strings.ReplaceAll(string(buf.Bytes()), "\r\n", ""))
+			sseServer.SendBytes(sseBytes)
+		}
+
+		return err
 	})
 
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
