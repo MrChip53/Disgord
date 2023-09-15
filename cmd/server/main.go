@@ -151,7 +151,7 @@ func main() {
 		next()
 	})
 	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
-		if ctx.UserValue("token") == nil && string(ctx.Path()) != "/login" {
+		if ctx.UserValue("token") == nil && string(ctx.Path()) != "/login" && string(ctx.Path()) != "/hp" {
 			redirect("/login", 302, ctx)
 			return
 		}
