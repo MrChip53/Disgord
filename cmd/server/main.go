@@ -220,6 +220,10 @@ func main() {
 		return errors.New("failed to do this")
 	})
 
+	srv.GET("/ws", func(ctx *fasthttp.RequestCtx) error {
+		return nil
+	})
+
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
 		args := ctx.PostArgs()
 		if !args.Has("username") || !args.Has("password") {
