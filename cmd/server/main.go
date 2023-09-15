@@ -344,6 +344,7 @@ func main() {
 		if ok {
 			userId = id
 		} else {
+			userIds[strings.ToLower(username)] = userId
 			users[userId] = User{
 				username: username,
 				password: passHash,
