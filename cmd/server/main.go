@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type User struct {
@@ -24,9 +25,20 @@ type User struct {
 	userId   uint
 }
 
+type Message struct {
+	Username string
+	Message  string
+}
+
+type MessageList struct {
+	messages []Message
+	lock     sync.RWMutex
+}
+
 var templates *template.Template
 var users map[uint]User
 var userIds map[string]uint
+var messages MessageList
 
 func parseTemplates(directory string, funcMap template.FuncMap) *template.Template {
 	return template.Must(template.New("").Funcs(funcMap).ParseGlob(directory + "/*.html"))
@@ -85,6 +97,7 @@ func redirect(uri string, code int, ctx *fasthttp.RequestCtx) {
 func main() {
 	users = make(map[uint]User)
 	userIds = make(map[string]uint)
+	messages = MessageList{messages: make([]Message, 0)}
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
@@ -198,6 +211,12 @@ func main() {
 		curServer["Channels"] = channels
 		dataMap["Server"] = curServer
 
+		func() {
+			messages.lock.RLock()
+			defer messages.lock.RUnlock()
+			dataMap["Messages"] = messages.messages
+		}()
+
 		err := templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
 		if err != nil {
 			log.Print(err)
@@ -271,22 +290,30 @@ func main() {
 			return nil
 		}
 
-		msg := strings.Trim(string(args.Peek("message")), " ")
+		msg := Message{
+			Message:  strings.Trim(string(args.Peek("message")), " "),
+			Username: ctx.UserValue("token").(*auth.JwtPayload).Username,
+		}
 
-		if len(msg) < 1 {
+		if len(msg.Message) < 1 {
 			ctx.SetStatusCode(400)
 			return nil
 		}
 
 		dataMap := make(map[string]any)
-		dataMap["Message"] = msg
-		dataMap["Username"] = ctx.UserValue("token").(*auth.JwtPayload).Username
+		dataMap["Message"] = msg.Message
+		dataMap["Username"] = msg.Username
 
 		ctx.Response.Header.Add("HX-Trigger", "clearMsgTextarea")
 
 		var buf bytes.Buffer
 		err := templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
 		ctx.Write(buf.Bytes())
+		func() {
+			messages.lock.Lock()
+			defer messages.lock.Unlock()
+			messages.messages = append(messages.messages, msg)
+		}()
 		if err == nil {
 			html := string(buf.Bytes())
 			html = strings.ReplaceAll(html, "\r", "")
