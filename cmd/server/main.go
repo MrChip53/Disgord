@@ -20,10 +20,13 @@ import (
 
 type User struct {
 	username string
+	password string
+	userId   uint
 }
 
 var templates *template.Template
-var users map[string]User
+var users map[uint]User
+var userIds map[string]uint
 
 func parseTemplates(directory string, funcMap template.FuncMap) *template.Template {
 	return template.Must(template.New("").Funcs(funcMap).ParseGlob(directory + "/*.html"))
@@ -80,7 +83,8 @@ func redirect(uri string, code int, ctx *fasthttp.RequestCtx) {
 }
 
 func main() {
-	users = make(map[string]User)
+	users = make(map[uint]User)
+	userIds = make(map[string]uint)
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
@@ -123,12 +127,16 @@ func main() {
 				return
 			}
 
-			// TODO fetch user info
+			user, ok := users[refreshPayload.UserId]
+			if !ok {
+				next()
+				return
+			}
 
 			jwtPayload := &auth.JwtPayload{
-				Username: "token refreshed",
+				Username: user.username,
 				Admin:    false,
-				UserId:   refreshPayload.UserId,
+				UserId:   user.userId,
 			}
 
 			sToken, rToken, err := auth.GenerateTokens(jwtPayload)
@@ -298,12 +306,33 @@ func main() {
 
 		username := string(args.Peek("username"))
 		password := string(args.Peek("password"))
-		_ = password
+
+		passHash, err := auth.HashPassword(password)
+		if err != nil {
+			return err
+		}
+
+		userId := uint(len(users) + 1)
+		id, ok := userIds[strings.ToLower(username)]
+		if ok {
+			userId = id
+		} else {
+			users[userId] = User{
+				username: username,
+				password: passHash,
+				userId:   userId,
+			}
+		}
+
+		user := users[userId]
+		if user.password != passHash {
+			return errors.New("invalid password")
+		}
 
 		jwtPayload := &auth.JwtPayload{
 			Username: username,
 			Admin:    false,
-			UserId:   1,
+			UserId:   uint(userId),
 		}
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
