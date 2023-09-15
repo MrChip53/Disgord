@@ -279,7 +279,10 @@ func main() {
 		err := templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
 		ctx.Write(buf.Bytes())
 		if err == nil {
-			sseBytes := []byte(strings.ReplaceAll(string(buf.Bytes()), "\r\n", ""))
+			html := string(buf.Bytes())
+			html = strings.ReplaceAll(html, "\r", "")
+			html = strings.ReplaceAll(html, "\n", "")
+			sseBytes := []byte(html)
 			sseServer.SendBytes(sseBytes)
 		}
 
