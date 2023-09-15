@@ -272,6 +272,7 @@ func main() {
 
 		dataMap := make(map[string]any)
 		dataMap["Message"] = msg
+		dataMap["Username"] = ctx.UserValue("token").(*auth.JwtPayload).Username
 
 		ctx.Response.Header.Add("HX-Trigger", "clearMsgTextarea")
 
