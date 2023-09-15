@@ -15,14 +15,12 @@
         </div>
     </nav>
     <section class="flex flex-col justify-end flex-shrink flex-grow">
-        <div class="px-4 py-2">
-            Messages here
+        <div id="main-window_messageWindow" class="px-4 py-2">
+
         </div>
     </section>
     <section class="flex-shrink-0 flex-grow-0 p-2 h-[52px]">
-        <div class="w-full h-full bg-neutral-600 rounded-md px-4 py-1">
-            <textarea class="w-full h-full box-border bg-transparent outline-none resize-none" placeholder="Message" name="message"></textarea>
-        </div>
+        {{template "msgTextarea"}}
     </section>
 </div>
 {{ end }}

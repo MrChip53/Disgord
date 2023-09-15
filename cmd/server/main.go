@@ -224,6 +224,18 @@ func main() {
 		return nil
 	})
 
+	srv.POST("/message/new", func(ctx *fasthttp.RequestCtx) error {
+		args := ctx.PostArgs()
+		if !args.Has("message") {
+			return nil
+		}
+
+		dataMap := make(map[string]any)
+		dataMap["Message"] = string(args.Peek("message"))
+
+		return templates.ExecuteTemplate(ctx, "message", addHXRequest(dataMap, ctx))
+	})
+
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
 		args := ctx.PostArgs()
 		if !args.Has("username") || !args.Has("password") {
