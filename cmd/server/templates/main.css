@@ -6,6 +6,26 @@
     @apply text-white;
 }
 
+* {
+    scrollbar-width: thin;
+    scrollbar-color: blue transparent;
+}
+
+/* Works on Chrome, Edge, and Safari */
+*::-webkit-scrollbar {
+    width: 6px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: #171717;
+    border-radius: 20px;
+    border: 1px solid transparent;
+}
+
 .htmx-swapping {
     opacity: 0;
     transition: opacity 300ms ease-out;

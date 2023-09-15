@@ -227,12 +227,21 @@ func main() {
 	srv.POST("/message/new", func(ctx *fasthttp.RequestCtx) error {
 		args := ctx.PostArgs()
 		if !args.Has("message") {
+			ctx.SetStatusCode(400)
+			return nil
+		}
+
+		msg := strings.Trim(string(args.Peek("message")), " ")
+
+		if len(msg) < 1 {
+			ctx.SetStatusCode(400)
 			return nil
 		}
 
 		dataMap := make(map[string]any)
-		dataMap["Message"] = string(args.Peek("message"))
+		dataMap["Message"] = msg
 
+		ctx.Response.Header.Add("HX-Trigger", "clearMsgTextarea")
 		return templates.ExecuteTemplate(ctx, "message", addHXRequest(dataMap, ctx))
 	})
 

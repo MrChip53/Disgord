@@ -2,7 +2,7 @@
   <div class="w-full h-full bg-neutral-600 rounded-md px-4 py-1">
     <textarea
             id="main-window_messageInput"
-            _="on htmx:afterRequest if event.target.id is 'main-window_messageInput' and event.detail.successful then put '' into my.value end
+            _="on clearMsgTextarea put '' into my.value end
             on keydown if event.keyCode is 13 and not event.shiftKey then event.preventDefault() end"
             hx-post="/message/new"
             hx-trigger="keyup[keyCode==13&&!shiftKey]"
