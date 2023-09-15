@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -63,6 +64,16 @@ func watchTemplates(rootDir string) {
 func addHXRequest(data map[string]any, ctx *fasthttp.RequestCtx) map[string]any {
 	data["isHXRequest"] = ctx.UserValue("isHXRequest").(bool)
 	return data
+}
+
+func redirect(uri string, code int, ctx *fasthttp.RequestCtx) {
+	u := ctx.URI()
+	if os.Getenv("PRODUCTION") == "true" {
+		u.SetScheme("https")
+	}
+	u.Update(uri)
+	ctx.Response.Header.Add("Location", string(u.FullURI()))
+	ctx.SetStatusCode(code)
 }
 
 func main() {
@@ -141,7 +152,7 @@ func main() {
 	})
 	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
 		if ctx.UserValue("token") == nil && string(ctx.Path()) != "/login" {
-			ctx.Redirect("/login", 302)
+			redirect("/login", 302, ctx)
 			return
 		}
 		next()
@@ -194,15 +205,10 @@ func main() {
 		sCookie, rCookie := createTokenCookies("", "", true)
 		ctx.Response.Header.SetCookie(sCookie)
 		ctx.Response.Header.SetCookie(rCookie)
-		ctx.Redirect("/", 302)
+		redirect("/", 302, ctx)
 		return nil
 	})
 	srv.GET("/navbar", func(ctx *fasthttp.RequestCtx) error {
-		if ctx.UserValue("token") == nil {
-			ctx.Redirect("/", 302)
-			return nil
-		}
-
 		err := templates.ExecuteTemplate(ctx, "navbar", nil)
 		if err != nil {
 			log.Print(err)
@@ -238,8 +244,7 @@ func main() {
 		sCookie, rCookie := createTokenCookies(sToken, rToken, false)
 		ctx.Response.Header.SetCookie(sCookie)
 		ctx.Response.Header.SetCookie(rCookie)
-
-		ctx.Redirect("/", 302)
+		redirect("/", 302, ctx)
 		return nil
 	})
 
