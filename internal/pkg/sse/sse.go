@@ -17,7 +17,7 @@ type Event struct {
 	Data  []byte
 }
 
-type SSEServer struct {
+type Server struct {
 	event         chan Event
 	clients       map[Client]bool
 	connecting    chan Client
@@ -25,8 +25,8 @@ type SSEServer struct {
 	bufSize       uint
 }
 
-func New() *SSEServer {
-	s := &SSEServer{
+func New() *Server {
+	s := &Server{
 		event:         make(chan Event),
 		clients:       make(map[Client]bool),
 		connecting:    make(chan Client),
@@ -38,7 +38,7 @@ func New() *SSEServer {
 	return s
 }
 
-func (s *SSEServer) run() {
+func (s *Server) run() {
 	go func() {
 		for {
 			select {
@@ -80,11 +80,11 @@ func (s *SSEServer) run() {
 	}()
 }
 
-func (s *SSEServer) SetBufferSize(size uint) {
+func (s *Server) SetBufferSize(size uint) {
 	s.bufSize = size
 }
 
-func (s *SSEServer) MakeClient(username string) *Client {
+func (s *Server) MakeClient(username string) *Client {
 	c := &Client{
 		Username: username,
 		Channel:  make(chan Event, s.bufSize),
@@ -93,11 +93,11 @@ func (s *SSEServer) MakeClient(username string) *Client {
 	return c
 }
 
-func (s *SSEServer) DestroyClient(c *Client) {
+func (s *Server) DestroyClient(c *Client) {
 	s.disconnecting <- *c
 }
 
-func (s *SSEServer) SendBytes(id string, event string, b []byte) {
+func (s *Server) SendBytes(id string, event string, b []byte) {
 	e := Event{
 		Id:    id,
 		Event: event,
