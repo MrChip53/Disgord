@@ -17,7 +17,7 @@
     <section class="flex flex-col min-h-0 justify-end flex-shrink flex-grow">
         <div _="on htmx:afterSwap if event.target.id is my.id then get the last <div/> in me then go to the bottom of it end"
             id="main-window_messageWindow"
-            class="px-4 py-2 overflow-x-hidden overflow-y-auto"
+            class="flex flex-col px-4 py-2 overflow-x-hidden overflow-y-auto gap-2"
             hx-ext="sse" sse-connect="/messages/sse" sse-swap="newMessage" hx-swap="beforeend">
             {{ range $msg := .Messages }}
                 {{template "message" $msg}}

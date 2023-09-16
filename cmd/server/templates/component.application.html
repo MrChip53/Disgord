@@ -1,0 +1,10 @@
+{{ define "application" }}
+<div class="flex w-screen h-screen">
+    {{ template "serverBar" . }}
+    <div class="flex grow bg-neutral-600">
+        {{template "channelMenu" .}}
+        {{template "mainWindow" .}}
+    </div>
+</div>
+<div id="modalPortal"></div>
+{{ end }}

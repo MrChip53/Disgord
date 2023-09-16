@@ -1,5 +1,9 @@
 {{define "message"}}
-    <div>
-        {{ .Username }}: {{ .Message }}
+    <div class="flex gap-2 break-all">
+        <img class="w-8 h-8 flex-shrink-0 flex-grow-0 rounded-full hover:shadow-xl hover:cursor-pointer" src="https://simoni.dev/backup/assets/dog.jpg" alt="{{ .Username }}'s avatar">
+        <div class="flex flex-col">
+            <h3>{{.Username}}</h3>
+            <span>{{ .Message }}</span>
+        </div>
     </div>
 {{end}}

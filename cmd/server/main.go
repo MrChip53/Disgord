@@ -6,10 +6,14 @@ import (
 	"Disgord/internal/pkg/sse"
 	"bufio"
 	"bytes"
-	"errors"
+	"context"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
+	"github.com/joho/godotenv"
 	"github.com/valyala/fasthttp"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"html/template"
 	"io/fs"
 	"log"
@@ -20,9 +24,11 @@ import (
 )
 
 type User struct {
-	username string
-	password string
-	userId   uint
+	ID             primitive.ObjectID `bson:"_id"`
+	Username       string
+	LowerUsername  string
+	Password       string
+	AvatarObjectId string
 }
 
 type Message struct {
@@ -36,8 +42,6 @@ type MessageList struct {
 }
 
 var templates *template.Template
-var users map[uint]User
-var userIds map[string]uint
 var messages MessageList
 
 func parseTemplates(directory string, funcMap template.FuncMap) *template.Template {
@@ -95,12 +99,17 @@ func redirect(uri string, code int, ctx *fasthttp.RequestCtx) {
 }
 
 func main() {
-	users = make(map[uint]User)
-	userIds = make(map[string]uint)
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Error loading .env file")
+	}
+
 	messages = MessageList{messages: make([]Message, 0)}
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
+	mongoClient := NewMongo()
+	defer mongoClient.Close()
 	sseServer := sse.New()
 
 	srv, err := server.New(templates)
@@ -140,16 +149,26 @@ func main() {
 				return
 			}
 
-			user, ok := users[refreshPayload.UserId]
-			if !ok {
+			objectID, err := primitive.ObjectIDFromHex(refreshPayload.UserId)
+			if err != nil {
+				log.Printf("failed to parse object id: %s\n", err)
+				next()
+				return
+			}
+
+			coll := mongoClient.client.Database("disgord").Collection("users")
+			filter := bson.D{{"_id", objectID}}
+			var user User
+			err = coll.FindOne(context.TODO(), filter).Decode(&user)
+			if err != nil {
 				next()
 				return
 			}
 
 			jwtPayload := &auth.JwtPayload{
-				Username: user.username,
+				Username: user.Username,
 				Admin:    false,
-				UserId:   user.userId,
+				UserId:   user.ID.String(),
 			}
 
 			sToken, rToken, err := auth.GenerateTokens(jwtPayload)
@@ -240,22 +259,18 @@ func main() {
 		redirect("/", 302, ctx)
 		return nil
 	})
-	srv.GET("/navbar", func(ctx *fasthttp.RequestCtx) error {
-		err := templates.ExecuteTemplate(ctx, "navbar", nil)
+	srv.GET("/settings", func(ctx *fasthttp.RequestCtx) error {
+		err := templates.ExecuteTemplate(ctx, "userSettingsModal", nil)
 		if err != nil {
 			log.Print(err)
 			return err
 		}
 		return nil
 	})
-	srv.GET("/error", func(ctx *fasthttp.RequestCtx) error {
-		return errors.New("failed to do this")
-	})
 
 	srv.GET("/ws", func(ctx *fasthttp.RequestCtx) error {
 		return nil
 	})
-
 	srv.GET("/messages/sse", func(ctx *fasthttp.RequestCtx) error {
 		ctx.Response.Header.Set("Cache-Control", "no-cache")
 		ctx.Response.Header.Set("Connection", "keep-alive")
@@ -304,7 +319,8 @@ func main() {
 		dataMap["Message"] = msg.Message
 		dataMap["Username"] = msg.Username
 
-		ctx.Response.Header.Add("HX-Trigger", "clearMsgTextarea")
+		ctx.Response.Header.Set("HX-Trigger", "clearMsgTextarea")
+		ctx.Response.Header.Set("HX-Reswap", "none")
 
 		var buf bytes.Buffer
 		err := templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
@@ -324,7 +340,6 @@ func main() {
 
 		return err
 	})
-
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
 		args := ctx.PostArgs()
 		if !args.Has("username") || !args.Has("password") {
@@ -334,26 +349,31 @@ func main() {
 		username := string(args.Peek("username"))
 		password := string(args.Peek("password"))
 
-		passHash, err := auth.HashPassword(password)
+		coll := mongoClient.client.Database("disgord").Collection("users")
+		filter := bson.D{{"lowerUsername", strings.ToLower(username)}}
+		var user User
+		err = coll.FindOne(context.TODO(), filter).Decode(&user)
 		if err != nil {
-			return err
-		}
-
-		userId := uint(len(users) + 1)
-		id, ok := userIds[strings.ToLower(username)]
-		if ok {
-			userId = id
-		} else {
-			userIds[strings.ToLower(username)] = userId
-			users[userId] = User{
-				username: username,
-				password: passHash,
-				userId:   userId,
+			if err == mongo.ErrNoDocuments {
+				passHash, err := auth.HashPassword(password)
+				if err != nil {
+					return err
+				}
+				user = User{
+					Username:      username,
+					LowerUsername: strings.ToLower(username),
+					Password:      passHash,
+				}
+				err = mongoClient.CreateUser(&user)
+				if err != nil {
+					return err
+				}
+			} else {
+				return err
 			}
 		}
 
-		user := users[userId]
-		if user.password != passHash {
+		if b, err := auth.VerifyPassword(password, user.Password); b == false || err != nil {
 			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
 			ctx.Response.Header.Set("HX-Reswap", "none")
 			return nil
@@ -362,7 +382,7 @@ func main() {
 		jwtPayload := &auth.JwtPayload{
 			Username: username,
 			Admin:    false,
-			UserId:   uint(userId),
+			UserId:   user.ID.Hex(),
 		}
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)

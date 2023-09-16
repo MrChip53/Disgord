@@ -9,11 +9,11 @@ import (
 type JwtPayload struct {
 	Username string `json:"username"`
 	Admin    bool   `json:"admin"`
-	UserId   uint   `json:"userId"`
+	UserId   string `json:"userId"`
 }
 
 type JwtRefreshPayload struct {
-	UserId uint `json:"userId"`
+	UserId string `json:"userId"`
 }
 
 //func AddAuthCookies(ctx *gin.Context, jwtToken string, refreshToken string) {
@@ -71,7 +71,7 @@ func verifyJwtToken(token string, jwtSecret []byte) (payload *JwtPayload, err er
 		payload = &JwtPayload{
 			Username: jwtToken.Claims.(jwt.MapClaims)["username"].(string),
 			Admin:    jwtToken.Claims.(jwt.MapClaims)["admin"].(bool),
-			UserId:   uint(jwtToken.Claims.(jwt.MapClaims)["userId"].(float64)),
+			UserId:   jwtToken.Claims.(jwt.MapClaims)["userId"].(string),
 		}
 		return payload, nil
 	}
@@ -94,7 +94,7 @@ func verifyRefreshToken(token string, jwtSecret []byte) (payload *JwtRefreshPayl
 
 	if _, ok := jwtToken.Claims.(jwt.MapClaims); ok && jwtToken.Valid {
 		payload = &JwtRefreshPayload{
-			UserId: uint(jwtToken.Claims.(jwt.MapClaims)["userId"].(float64)),
+			UserId: jwtToken.Claims.(jwt.MapClaims)["userId"].(string),
 		}
 		return payload, nil
 	}
