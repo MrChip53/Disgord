@@ -38,11 +38,13 @@ type Message struct {
 	ID             primitive.ObjectID `bson:"_id"`
 	Server         primitive.ObjectID
 	Channel        primitive.ObjectID
+	AuthorId       primitive.ObjectID
 	Username       string
 	AvatarObjectId string
 	Timestamp      time.Time `bson:"timestamp"`
 	Type           int
 	Message        string
+	Command        string
 }
 
 var templates *template.Template
@@ -86,7 +88,7 @@ func watchTemplates(rootDir string) {
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write {
 				fmt.Println("Reloading templates: ", event.Name, " reloading templates")
-				templates = parseTemplates(rootDir, nil)
+				templates = parseTemplates(rootDir, getFuncMap())
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -266,6 +268,16 @@ func main() {
 		}
 		return nil
 	})
+	srv.GET("/messages", func(ctx *fasthttp.RequestCtx) error {
+		dataMap := make(map[string]any)
+		msgs, err := mongoClient.GetMessages("", "")
+		if err == nil {
+			dataMap["Messages"] = msgs
+		}
+		ctx.Response.Header.Set("HX-Retarget", "main-window_messageWindow")
+		ctx.Response.Header.Set("HX-Reswap", "innerHTML")
+		return templates.ExecuteTemplate(ctx, "messages", addHXRequest(dataMap, ctx))
+	})
 	srv.GET("/login", func(ctx *fasthttp.RequestCtx) error {
 		if ctx.UserValue("token") != nil {
 			redirect("/", 302, ctx)
@@ -346,10 +358,23 @@ func main() {
 			return nil
 		}
 
+		msgStr := strings.Trim(string(args.Peek("message")), " ")
+		cmd := ""
+		if strings.HasPrefix(msgStr, "/") {
+			msgStr, cmd = handleCommand(msgStr)
+		}
+
+		authId, err := primitive.ObjectIDFromHex(ctx.UserValue("token").(*auth.JwtPayload).UserId)
+		if err != nil {
+			return err
+		}
+
 		msg := Message{
-			Message:        strings.Trim(string(args.Peek("message")), " "),
+			Message:        msgStr,
+			AuthorId:       authId,
+			Command:        cmd,
 			Username:       ctx.UserValue("token").(*auth.JwtPayload).Username,
-			Timestamp:      time.Now(),
+			Timestamp:      time.Now().UTC(),
 			Type:           0,
 			AvatarObjectId: ctx.UserValue("token").(*auth.JwtPayload).AvatarObjectId,
 		}
@@ -359,20 +384,27 @@ func main() {
 			return nil
 		}
 
+		id, err := mongoClient.CreateMessage(&msg)
+		if err != nil {
+			return err
+		}
+
 		dataMap := make(map[string]any)
+		dataMap["ID"] = id
+		dataMap["AuthorId"] = msg.AuthorId
 		dataMap["Message"] = msg.Message
+		dataMap["Command"] = msg.Command
 		dataMap["Username"] = msg.Username
 		dataMap["AvatarObjectId"] = msg.AvatarObjectId
-		dataMap["Timestamp"] = msg.Timestamp.Format("15:04")
+		dataMap["Timestamp"] = msg.Timestamp
 		dataMap["Type"] = msg.Type
 
 		ctx.Response.Header.Set("HX-Trigger", "clearMsgTextarea")
 		ctx.Response.Header.Set("HX-Reswap", "none")
 
 		var buf bytes.Buffer
-		err := templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
+		err = templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
 		ctx.Write(buf.Bytes())
-		mongoClient.CreateMessage(&msg)
 		if err == nil {
 			html := string(buf.Bytes())
 			html = strings.ReplaceAll(html, "\r", "")
@@ -425,7 +457,7 @@ func main() {
 		}
 
 		jwtPayload := &auth.JwtPayload{
-			Username:       username,
+			Username:       user.Username,
 			Admin:          false,
 			UserId:         user.ID.Hex(),
 			AvatarObjectId: user.AvatarObjectId,
@@ -502,6 +534,20 @@ func main() {
 		}
 		ctx.Response.Header.Set("HX-Trigger", "closeModal")
 		return sendErrorToast(ctx, "User settings saved")
+	})
+
+	srv.DELETE("/message/.*?", func(ctx *fasthttp.RequestCtx) error {
+		mId := string(ctx.Path())[9:]
+		message, err := mongoClient.GetMessage(mId)
+		if err != nil {
+			return sendErrorToast(ctx, "Failed to delete message")
+		}
+		hex := message.AuthorId.Hex()
+		if hex != ctx.UserValue("token").(*auth.JwtPayload).UserId && strings.ReplaceAll(hex, "0", "") != "" {
+			return sendErrorToast(ctx, "Failed to delete message")
+		}
+		sseServer.SendBytes("1", "deleteMessage", []byte("message-"+mId))
+		return mongoClient.DeleteMessage(mId)
 	})
 
 	srv.SetErrorTemplate(404, "404Page")

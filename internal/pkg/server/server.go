@@ -4,6 +4,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"html/template"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -75,12 +76,27 @@ func (s *Server) error(errorCode int, ctx *fasthttp.RequestCtx) {
 func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool) {
 	handler, ok := s.routeHandlers[method+":"+route]
 
-	if !ok && strings.Contains(route, ".") {
-		lastIndex := strings.LastIndex(route, "/")
-		return s.getRouteHandler(method, route[:lastIndex+1]+"*")
+	if !ok {
+		if strings.Contains(route, ".") {
+			lastIndex := strings.LastIndex(route, "/")
+			return s.getRouteHandler(method, route[:lastIndex+1]+"*")
+		} else {
+			return s.findHandlerRegex(method, route)
+		}
 	}
 
 	return handler, ok
+}
+
+func (s *Server) findHandlerRegex(method string, route string) (HandlerFunc, bool) {
+	key := method + ":" + route
+	for k, v := range s.routeHandlers {
+		matchString, _ := regexp.MatchString(k, key)
+		if matchString {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) {
@@ -97,7 +113,6 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) {
 			s.middlewares[index](ctx, next)
 			return
 		}
-		// TODO Regex match strings for parameters in route
 		method := string(ctx.Method())
 		handler, ok := s.getRouteHandler(method, string(ctx.Path()))
 		if !ok {

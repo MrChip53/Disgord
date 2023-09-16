@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
@@ -37,17 +38,19 @@ func (m *MongoClient) CreateUser(user *User) error {
 	return err
 }
 
-func (m *MongoClient) CreateMessage(msg *Message) error {
-	_, err := m.client.Database("disgord").Collection("messages").InsertOne(context.TODO(), bson.M{
+func (m *MongoClient) CreateMessage(msg *Message) (interface{}, error) {
+	o, err := m.client.Database("disgord").Collection("messages").InsertOne(context.TODO(), bson.M{
 		"server":         msg.Server,
 		"channel":        msg.Channel,
+		"authorId":       msg.AuthorId,
 		"username":       msg.Username,
 		"avatarObjectId": msg.AvatarObjectId,
 		"timestamp":      msg.Timestamp,
 		"type":           msg.Type,
 		"message":        msg.Message,
+		"command":        msg.Command,
 	})
-	return err
+	return o.InsertedID, err
 }
 
 func (m *MongoClient) GetMessages(serverId string, channelId string) ([]Message, error) {
@@ -65,4 +68,32 @@ func (m *MongoClient) GetMessages(serverId string, channelId string) ([]Message,
 		return nil, err
 	}
 	return messages, nil
+}
+
+func (m *MongoClient) GetMessage(id string) (*Message, error) {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	var message Message
+	filter := bson.M{
+		"_id": objectID,
+	}
+	err = m.client.Database("disgord").Collection("messages").FindOne(context.TODO(), filter).Decode(&message)
+	if err != nil {
+		return nil, err
+	}
+	return &message, nil
+}
+
+func (m *MongoClient) DeleteMessage(id string) error {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+	filter := bson.M{
+		"_id": objectID,
+	}
+	_, err = m.client.Database("disgord").Collection("messages").DeleteOne(context.TODO(), filter)
+	return err
 }

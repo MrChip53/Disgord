@@ -1,0 +1,5 @@
+{{ define "messages" }}
+    {{ range $msg := .Messages }}
+        {{template "message" $msg}}
+    {{ end }}
+{{ end }}

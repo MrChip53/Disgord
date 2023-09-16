@@ -1,8 +1,20 @@
 {{define "message"}}
-    <div class="flex gap-2 break-all">
+    <div id="message-{{formatObjectId .ID}}" class="flex gap-2 break-all px-4 py-2 relative group hover:bg-gray-600">
+        <div class="justify-center items-center absolute hidden top-1 right-1 group-hover:flex">
+            <button hx-delete="/message/{{formatObjectId .ID}}" hx-swap="none" class="w-8 h-8 p-2 text-gray-400 bg-neutral-800 hover:text-white rounded-md hover:bg-slate-900" aria-label="Delete Message">{{template "icTrash"}}</button>
+        </div>
         <img class="w-8 h-8 flex-shrink-0 flex-grow-0 rounded-full hover:shadow-xl hover:cursor-pointer" src="https://storage.googleapis.com/disgord-files/{{.AvatarObjectId}}" alt="{{ .Username }}'s avatar">
         <div class="flex flex-col">
-            <h3>{{.Username}} - {{.Timestamp}}</h3>
+            <h3>
+                <span class="text-base cursor-pointer hover:underline">{{.Username}}</span>
+                <time class="text-sm cursor-default text-gray-400" datetime="{{ .Timestamp }}">{{ formatTime .Timestamp }}</time>
+            </h3>
+            {{ if .Command }}
+                <div class="flex items-center">
+                    <span class="text-sm cursor-default text-amber-500">{{ .Command }}</span>
+                    <span class="w-4 h-4 text-amber-500">{{template "icArrowDownSmall"}}</span>
+                </div>
+            {{ end }}
             <span>{{ .Message }}</span>
         </div>
     </div>
