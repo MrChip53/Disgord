@@ -484,6 +484,7 @@ func main() {
 			ACL: []storage.ACLRule{
 				{Entity: storage.AllUsers, Role: storage.RoleReader},
 			},
+			CacheControl: "public, max-age=15",
 		}); err != nil {
 			log.Fatalf("Failed to update object ACL: %v", err)
 		}
