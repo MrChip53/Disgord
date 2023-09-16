@@ -118,7 +118,7 @@ func main() {
 		log.Println("Error loading .env file")
 	}
 
-	templates = parseTemplates("./cmd/server/templates", nil)
+	templates = parseTemplates("./cmd/server/templates", getFuncMap())
 	go watchTemplates("./cmd/server/templates")
 
 	ctx := context.Background()
