@@ -99,8 +99,12 @@ func verifyRefreshToken(token string, jwtSecret []byte) (payload *JwtRefreshPayl
 	}
 
 	if _, ok := jwtToken.Claims.(jwt.MapClaims); ok && jwtToken.Valid {
+		uId, ok := jwtToken.Claims.(jwt.MapClaims)["userId"].(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid token")
+		}
 		payload = &JwtRefreshPayload{
-			UserId: jwtToken.Claims.(jwt.MapClaims)["userId"].(string),
+			UserId: uId,
 		}
 		return payload, nil
 	}
