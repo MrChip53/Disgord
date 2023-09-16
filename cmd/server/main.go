@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -36,17 +35,17 @@ type User struct {
 }
 
 type Message struct {
-	Username string
-	Message  string
-}
-
-type MessageList struct {
-	messages []Message
-	lock     sync.RWMutex
+	ID             primitive.ObjectID `bson:"_id"`
+	Server         primitive.ObjectID
+	Channel        primitive.ObjectID
+	Username       string
+	AvatarObjectId string
+	Timestamp      time.Time `bson:"timestamp"`
+	Type           int
+	Message        string
 }
 
 var templates *template.Template
-var messages MessageList
 
 func sendErrorToast(ctx *fasthttp.RequestCtx, message string) error {
 	errorToast := make(map[string]any)
@@ -119,7 +118,6 @@ func main() {
 		log.Println("Error loading .env file")
 	}
 
-	messages = MessageList{messages: make([]Message, 0)}
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
@@ -256,13 +254,12 @@ func main() {
 		curServer["Channels"] = channels
 		dataMap["Server"] = curServer
 
-		func() {
-			messages.lock.RLock()
-			defer messages.lock.RUnlock()
-			dataMap["Messages"] = messages.messages
-		}()
+		msgs, err := mongoClient.GetMessages("", "")
+		if err == nil {
+			dataMap["Messages"] = msgs
+		}
 
-		err := templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
+		err = templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
 		if err != nil {
 			log.Print(err)
 			return err
@@ -350,8 +347,11 @@ func main() {
 		}
 
 		msg := Message{
-			Message:  strings.Trim(string(args.Peek("message")), " "),
-			Username: ctx.UserValue("token").(*auth.JwtPayload).Username,
+			Message:        strings.Trim(string(args.Peek("message")), " "),
+			Username:       ctx.UserValue("token").(*auth.JwtPayload).Username,
+			Timestamp:      time.Now(),
+			Type:           0,
+			AvatarObjectId: ctx.UserValue("token").(*auth.JwtPayload).AvatarObjectId,
 		}
 
 		if len(msg.Message) < 1 {
@@ -362,6 +362,9 @@ func main() {
 		dataMap := make(map[string]any)
 		dataMap["Message"] = msg.Message
 		dataMap["Username"] = msg.Username
+		dataMap["AvatarObjectId"] = msg.AvatarObjectId
+		dataMap["Timestamp"] = msg.Timestamp.Format("15:04")
+		dataMap["Type"] = msg.Type
 
 		ctx.Response.Header.Set("HX-Trigger", "clearMsgTextarea")
 		ctx.Response.Header.Set("HX-Reswap", "none")
@@ -369,11 +372,7 @@ func main() {
 		var buf bytes.Buffer
 		err := templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
 		ctx.Write(buf.Bytes())
-		func() {
-			messages.lock.Lock()
-			defer messages.lock.Unlock()
-			messages.messages = append(messages.messages, msg)
-		}()
+		mongoClient.CreateMessage(&msg)
 		if err == nil {
 			html := string(buf.Bytes())
 			html = strings.ReplaceAll(html, "\r", "")

@@ -36,3 +36,33 @@ func (m *MongoClient) CreateUser(user *User) error {
 	})
 	return err
 }
+
+func (m *MongoClient) CreateMessage(msg *Message) error {
+	_, err := m.client.Database("disgord").Collection("messages").InsertOne(context.TODO(), bson.M{
+		"server":         msg.Server,
+		"channel":        msg.Channel,
+		"username":       msg.Username,
+		"avatarObjectId": msg.AvatarObjectId,
+		"timestamp":      msg.Timestamp,
+		"type":           msg.Type,
+		"message":        msg.Message,
+	})
+	return err
+}
+
+func (m *MongoClient) GetMessages(serverId string, channelId string) ([]Message, error) {
+	var messages []Message
+	//filter := bson.M{
+	//	"server":  serverId,
+	//	"channel": channelId,
+	//}
+	cursor, err := m.client.Database("disgord").Collection("messages").Find(context.TODO(),
+		options.Find())
+	if err != nil {
+		return nil, err
+	}
+	if err := cursor.All(context.Background(), &messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
