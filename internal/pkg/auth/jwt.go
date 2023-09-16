@@ -69,10 +69,14 @@ func verifyJwtToken(token string, jwtSecret []byte) (payload *JwtPayload, err er
 	}
 
 	if _, ok := jwtToken.Claims.(jwt.MapClaims); ok && jwtToken.Valid {
+		uId, ok := jwtToken.Claims.(jwt.MapClaims)["userId"].(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid token")
+		}
 		payload = &JwtPayload{
 			Username:       jwtToken.Claims.(jwt.MapClaims)["username"].(string),
 			Admin:          jwtToken.Claims.(jwt.MapClaims)["admin"].(bool),
-			UserId:         jwtToken.Claims.(jwt.MapClaims)["userId"].(string),
+			UserId:         uId,
 			AvatarObjectId: jwtToken.Claims.(jwt.MapClaims)["avatarObjectId"].(string),
 		}
 		return payload, nil
