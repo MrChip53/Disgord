@@ -1,10 +1,10 @@
 {{ define "userSettingsModal" }}
-<form hx-post="/user/settings" hx-swap="none">
-  <div class="flex justify-center items-center absolute top-0 left-0 right-0 bottom-0 bg-neutral-900/70 z-50">
+<form name="userSettings" hx-encoding="multipart/form-data" hx-post="/user/settings" hx-swap="none">
+  <div class="flex justify-center items-center absolute top-0 left-0 right-0 bottom-0 bg-neutral-900/70 z-40">
     <div class="flex flex-col justify-between bg-blue-500/50 w-1/2 h-1/2 rounded-md p-4">
         <div class="flex flex-col">
           <h3>User Settings</h3>
-          <img src="https://simoni.dev/backup/assets/dog.jpg" class="w-16 h-16 rounded-full mr-2 flex-grow-0 flex-shrink-0" alt="Avatar">
+          <img src="{{ .avatarUrl }}" class="w-16 h-16 rounded-full mr-2 flex-grow-0 flex-shrink-0" alt="Avatar">
           <input type="file" name="avatar" accept="image/*">
         </div>
         <div class="ml-auto">

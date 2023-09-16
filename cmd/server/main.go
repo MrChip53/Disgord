@@ -123,7 +123,8 @@ func main() {
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
 
-	client, err := storage.NewClient(context.Background(), option.WithCredentialsFile("gcs.json"))
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx, option.WithCredentialsFile("gcs.json"))
 	if err != nil {
 		fmt.Printf("Failed to create Google Cloud Storage client: %v\n", err)
 		return
@@ -188,9 +189,10 @@ func main() {
 			}
 
 			jwtPayload := &auth.JwtPayload{
-				Username: user.Username,
-				Admin:    false,
-				UserId:   user.ID.String(),
+				Username:       user.Username,
+				Admin:          false,
+				UserId:         user.ID.Hex(),
+				AvatarObjectId: user.AvatarObjectId,
 			}
 
 			sToken, rToken, err := auth.GenerateTokens(jwtPayload)
@@ -238,7 +240,9 @@ func main() {
 		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
 		dataMap["username"] = token.(*auth.JwtPayload).Username
-		dataMap["title"] = "Disgord"
+		dataMap["hasAvatar"] = token.(*auth.JwtPayload).AvatarObjectId != ""
+		dataMap["avatarUrl"] = fmt.Sprintf("https://storage.googleapis.com/disgord-files/%s", token.(*auth.JwtPayload).AvatarObjectId)
+		dataMap["title"] = "Home - Disgord"
 
 		curServer := make(map[string]any)
 		channels := make(map[string][]string)
@@ -266,7 +270,13 @@ func main() {
 		return nil
 	})
 	srv.GET("/login", func(ctx *fasthttp.RequestCtx) error {
+		if ctx.UserValue("token") != nil {
+			redirect("/", 302, ctx)
+			return nil
+		}
+
 		dataMap := make(map[string]any)
+		dataMap["title"] = "Login - Disgord"
 		err := templates.ExecuteTemplate(ctx, "loginPage", addHXRequest(dataMap, ctx))
 		if err != nil {
 			log.Print(err)
@@ -282,7 +292,10 @@ func main() {
 		return nil
 	})
 	srv.GET("/settings", func(ctx *fasthttp.RequestCtx) error {
-		err := templates.ExecuteTemplate(ctx, "userSettingsModal", nil)
+		dataMap := make(map[string]any)
+		token := ctx.UserValue("token")
+		dataMap["avatarUrl"] = fmt.Sprintf("https://storage.googleapis.com/disgord-files/%s", token.(*auth.JwtPayload).AvatarObjectId)
+		err := templates.ExecuteTemplate(ctx, "userSettingsModal", dataMap)
 		if err != nil {
 			log.Print(err)
 			return err
@@ -413,9 +426,10 @@ func main() {
 		}
 
 		jwtPayload := &auth.JwtPayload{
-			Username: username,
-			Admin:    false,
-			UserId:   user.ID.Hex(),
+			Username:       username,
+			Admin:          false,
+			UserId:         user.ID.Hex(),
+			AvatarObjectId: user.AvatarObjectId,
 		}
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
@@ -431,19 +445,63 @@ func main() {
 		return nil
 	})
 	srv.POST("/user/settings", func(ctx *fasthttp.RequestCtx) error {
-		formFile, err := ctx.FormFile("avatar")
-		if err != nil {
+		// TODO goroutine the file upload/image conversion and compression
+		m, err := ctx.Request.MultipartForm()
+
+		formFile, ok := m.File["avatar"]
+		if !ok || len(formFile) != 1 {
 			return sendErrorToast(ctx, "Failed to update settings")
 		}
 
-		file, err := formFile.Open()
+		file, err := formFile[0].Open()
 		if err != nil {
 			return sendErrorToast(ctx, "Failed to update settings")
 		}
 		defer file.Close()
 
+		fileBytes := make([]byte, formFile[0].Size)
+		_, err = file.Read(fileBytes)
+		if err != nil {
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
+		userId := ctx.UserValue("token").(*auth.JwtPayload).UserId
+		objName := "avatar-" + userId
+		bucket := client.Bucket("disgord-files")
+		obj := bucket.Object(objName)
+		wc := obj.NewWriter(ctx)
+		if _, err = wc.Write(fileBytes); err != nil {
+			wc.Close()
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
+		if err := wc.Close(); err != nil {
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
+		_, err = obj.Attrs(ctx)
+		if err != nil {
+			log.Fatalf("Failed to get object attributes: %v", err)
+		}
+		if _, err := obj.Update(ctx, storage.ObjectAttrsToUpdate{
+			ACL: []storage.ACLRule{
+				{Entity: storage.AllUsers, Role: storage.RoleReader},
+			},
+		}); err != nil {
+			log.Fatalf("Failed to update object ACL: %v", err)
+		}
+		objectID, err := primitive.ObjectIDFromHex(userId)
+		if err != nil {
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
+		filter := bson.M{"_id": objectID} // Filter to identify the document(s) to update
+
+		update := bson.M{
+			"$set": bson.M{"AvatarObjectId": objName},
+		}
+		coll := mongoClient.client.Database("disgord").Collection("users")
+		if _, err := coll.UpdateOne(context.Background(), filter, update); err != nil {
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
 		ctx.Response.Header.Set("HX-Trigger", "closeModal")
-		return nil
+		return sendErrorToast(ctx, "User settings saved")
 	})
 
 	srv.SetErrorTemplate(404, "404Page")

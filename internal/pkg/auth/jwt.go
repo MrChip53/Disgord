@@ -7,9 +7,10 @@ import (
 )
 
 type JwtPayload struct {
-	Username string `json:"username"`
-	Admin    bool   `json:"admin"`
-	UserId   string `json:"userId"`
+	Username       string `json:"username"`
+	Admin          bool   `json:"admin"`
+	UserId         string `json:"userId"`
+	AvatarObjectId string `json:"avatarObjectId"`
 }
 
 type JwtRefreshPayload struct {
@@ -69,9 +70,10 @@ func verifyJwtToken(token string, jwtSecret []byte) (payload *JwtPayload, err er
 
 	if _, ok := jwtToken.Claims.(jwt.MapClaims); ok && jwtToken.Valid {
 		payload = &JwtPayload{
-			Username: jwtToken.Claims.(jwt.MapClaims)["username"].(string),
-			Admin:    jwtToken.Claims.(jwt.MapClaims)["admin"].(bool),
-			UserId:   jwtToken.Claims.(jwt.MapClaims)["userId"].(string),
+			Username:       jwtToken.Claims.(jwt.MapClaims)["username"].(string),
+			Admin:          jwtToken.Claims.(jwt.MapClaims)["admin"].(bool),
+			UserId:         jwtToken.Claims.(jwt.MapClaims)["userId"].(string),
+			AvatarObjectId: jwtToken.Claims.(jwt.MapClaims)["avatarObjectId"].(string),
 		}
 		return payload, nil
 	}
@@ -133,6 +135,7 @@ func generateJwtToken(payload *JwtPayload, jwtSecret []byte) (string, error) {
 	claims["username"] = payload.Username
 	claims["admin"] = payload.Admin
 	claims["userId"] = payload.UserId
+	claims["avatarObjectId"] = payload.AvatarObjectId
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
