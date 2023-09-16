@@ -4,8 +4,8 @@ import (
 	"Disgord/internal/pkg/auth"
 	"Disgord/internal/pkg/server"
 	"Disgord/internal/pkg/sse"
-	"bufio"
 	"bytes"
+	"cloud.google.com/go/storage"
 	"context"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
@@ -15,13 +15,16 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"google.golang.org/api/option"
 	"html/template"
 	"io/fs"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type User struct {
@@ -44,6 +47,17 @@ type MessageList struct {
 
 var templates *template.Template
 var messages MessageList
+
+func sendErrorToast(ctx *fasthttp.RequestCtx, message string) error {
+	errorToast := make(map[string]any)
+	errorToast["toastId"] = "toast-" + uuid.New().String()
+	errorToast["toast"] = message
+
+	ctx.Response.Header.Set("HX-Reswap", "beforeend")
+	ctx.Response.Header.Set("HX-Retarget", "#toastContainer")
+
+	return templates.ExecuteTemplate(ctx, "toast", errorToast)
+}
 
 func parseTemplates(directory string, funcMap template.FuncMap) *template.Template {
 	return template.Must(template.New("").Funcs(funcMap).ParseGlob(directory + "/*.html"))
@@ -108,6 +122,13 @@ func main() {
 	messages = MessageList{messages: make([]Message, 0)}
 	templates = parseTemplates("./cmd/server/templates", nil)
 	go watchTemplates("./cmd/server/templates")
+
+	client, err := storage.NewClient(context.Background(), option.WithCredentialsFile("gcs.json"))
+	if err != nil {
+		fmt.Printf("Failed to create Google Cloud Storage client: %v\n", err)
+		return
+	}
+	defer client.Close()
 
 	mongoClient := NewMongo()
 	defer mongoClient.Close()
@@ -273,26 +294,35 @@ func main() {
 		return nil
 	})
 	srv.GET("/messages/sse", func(ctx *fasthttp.RequestCtx) error {
-		ctx.Response.Header.Set("Cache-Control", "no-cache")
-		ctx.Response.Header.Set("Connection", "keep-alive")
-		ctx.Response.Header.Set("Content-Type", "text/event-stream")
-
-		ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
-			client := sseServer.MakeClient()
+		notify := ctx.Done()
+		username := ctx.UserValue("token").(*auth.JwtPayload).Username
+		ctx.HijackSetNoResponse(true)
+		ctx.Hijack(func(c net.Conn) {
+			client := sseServer.MakeClient(username)
 			defer sseServer.DestroyClient(client)
+
+			httpMsg := []byte("HTTP/1.1 200 OK\r\n")
+			httpMsg = append(httpMsg, []byte("Content-Type: text/event-stream\r\n")...)
+			httpMsg = append(httpMsg, []byte("Cache-Control: no-cache\r\n")...)
+			httpMsg = append(httpMsg, []byte("Connection: keep-alive\r\n")...)
+			httpMsg = append(httpMsg, []byte("Keep-Alive: timeout=15\r\n")...)
+			httpMsg = append(httpMsg, []byte("\r\n")...)
+			if _, err := c.Write(httpMsg); err != nil {
+				return
+			}
 
 			for {
 				select {
-				case event := <-client:
-					w.Write([]byte("id: 1\n"))
-					w.Write([]byte("event: newMessage\n"))
-					str := string(event)
-					_ = str
-					_, err := w.Write(event)
-					if err != nil {
+				case event := <-client.Channel:
+					msg := event.String()
+					if err := c.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
 						return
 					}
-					w.Flush()
+					if _, err := c.Write([]byte(msg)); err != nil {
+						return
+					}
+				case <-notify:
+					return
 				}
 			}
 		})
@@ -336,24 +366,12 @@ func main() {
 			html = strings.ReplaceAll(html, "\r", "")
 			html = strings.ReplaceAll(html, "\n", "")
 			sseBytes := []byte(html)
-			sseServer.SendBytes(sseBytes)
+			sseServer.SendBytes("1", "newMessage", sseBytes)
 		}
 
 		return err
 	})
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
-		sendErrorToast := func() error {
-			errorToast := make(map[string]any)
-			errorToast["toastId"] = "toast-" + uuid.New().String()
-			errorToast["toast"] = "Failed to login or create account."
-
-			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-			ctx.Response.Header.Set("HX-Reswap", "beforeend")
-			ctx.Response.Header.Set("HX-Retarget", "#toastContainer")
-
-			return templates.ExecuteTemplate(ctx, "toast", errorToast)
-		}
-
 		args := ctx.PostArgs()
 		if !args.Has("username") || !args.Has("password") {
 			return nil
@@ -370,7 +388,8 @@ func main() {
 			if err == mongo.ErrNoDocuments {
 				passHash, err := auth.HashPassword(password)
 				if err != nil {
-					return sendErrorToast()
+					ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+					return sendErrorToast(ctx, "Failed to login or create account")
 				}
 				user = User{
 					Username:      username,
@@ -379,15 +398,18 @@ func main() {
 				}
 				err = mongoClient.CreateUser(&user)
 				if err != nil {
-					return sendErrorToast()
+					ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+					return sendErrorToast(ctx, "Failed to login or create account")
 				}
 			} else {
-				return sendErrorToast()
+				ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+				return sendErrorToast(ctx, "Failed to login or create account")
 			}
 		}
 
 		if b, err := auth.VerifyPassword(password, user.Password); b == false || err != nil {
-			return sendErrorToast()
+			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+			return sendErrorToast(ctx, "Failed to login or create account")
 		}
 
 		jwtPayload := &auth.JwtPayload{
@@ -398,13 +420,29 @@ func main() {
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
 		if err != nil {
-			return sendErrorToast()
+			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+			return sendErrorToast(ctx, "Failed to login or create account")
 		}
 
 		sCookie, rCookie := createTokenCookies(sToken, rToken, false)
 		ctx.Response.Header.SetCookie(sCookie)
 		ctx.Response.Header.SetCookie(rCookie)
 		redirect("/", 302, ctx)
+		return nil
+	})
+	srv.POST("/user/settings", func(ctx *fasthttp.RequestCtx) error {
+		formFile, err := ctx.FormFile("avatar")
+		if err != nil {
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
+
+		file, err := formFile.Open()
+		if err != nil {
+			return sendErrorToast(ctx, "Failed to update settings")
+		}
+		defer file.Close()
+
+		ctx.Response.Header.Set("HX-Trigger", "closeModal")
 		return nil
 	})
 

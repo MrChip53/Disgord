@@ -3,3 +3,4 @@
 /public/*.fasthttp.br
 /node_modules/
 .env
+gcs.json

@@ -5,10 +5,19 @@ import (
 	"log"
 )
 
-type Client chan []byte
+type Client struct {
+	Username string
+	Channel  chan Event
+}
+
+type Event struct {
+	Id    string
+	Event string
+	Data  []byte
+}
 
 type SSEServer struct {
-	event         chan []byte
+	event         chan Event
 	clients       map[Client]bool
 	connecting    chan Client
 	disconnecting chan Client
@@ -17,7 +26,7 @@ type SSEServer struct {
 
 func New() *SSEServer {
 	s := &SSEServer{
-		event:         make(chan []byte),
+		event:         make(chan Event),
 		clients:       make(map[Client]bool),
 		connecting:    make(chan Client),
 		disconnecting: make(chan Client),
@@ -39,11 +48,11 @@ func (s *SSEServer) run() {
 				delete(s.clients, cl)
 				log.Printf("sse client disconnected. connected clients: %d\n", len(s.clients))
 			case event := <-s.event:
-				log.Printf("new sse event. event: %s\n", string(event))
+				log.Printf("new sse event. event: %s\n", event.String())
 				for cl := range s.clients {
 					// TODO: non-blocking broadcast
 					select {
-					case cl <- event: // Try to send event to client
+					case cl.Channel <- event: // Try to send event to client
 					default:
 						fmt.Println("Channel full. Discarding value")
 					}
@@ -57,20 +66,32 @@ func (s *SSEServer) SetBufferSize(size uint) {
 	s.bufSize = size
 }
 
-func (s *SSEServer) MakeClient() Client {
-	c := make(Client, s.bufSize)
-	s.connecting <- c
+func (s *SSEServer) MakeClient(username string) *Client {
+	c := &Client{
+		Username: username,
+		Channel:  make(chan Event, s.bufSize),
+	}
+	s.connecting <- *c
 	return c
 }
 
-func (s *SSEServer) DestroyClient(c Client) {
-	s.disconnecting <- c
+func (s *SSEServer) DestroyClient(c *Client) {
+	s.disconnecting <- *c
 }
 
-func (s *SSEServer) SendBytes(b []byte) {
-	endStr := []byte("\n\n")
-	newB := []byte("data: ")
-	newB = append(newB, b...)
-	newB = append(newB, endStr...)
-	s.event <- newB
+func (s *SSEServer) SendBytes(id string, event string, b []byte) {
+	e := Event{
+		Id:    id,
+		Event: event,
+		Data:  b,
+	}
+	s.event <- e
+}
+
+func (e *Event) String() string {
+	return fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", e.Id, e.Event, e.Data)
+}
+
+func FormatEvent(id string, event string, data string) string {
+	return fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", id, event, data)
 }
