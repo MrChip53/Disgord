@@ -2,3 +2,4 @@
 /public/main.css
 /public/*.fasthttp.br
 /node_modules/
+.env
