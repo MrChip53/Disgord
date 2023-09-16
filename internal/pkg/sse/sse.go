@@ -3,6 +3,7 @@ package sse
 import (
 	"fmt"
 	"log"
+	"time"
 )
 
 type Client struct {
@@ -58,6 +59,23 @@ func (s *SSEServer) run() {
 					}
 				}
 			}
+		}
+	}()
+	go func() {
+		for {
+			event := Event{
+				Id:    "0",
+				Event: "ping",
+				Data:  []byte("ping"),
+			}
+			for cl := range s.clients {
+				select {
+				case cl.Channel <- event:
+				default:
+					fmt.Println("Channel full. Discarding value")
+				}
+			}
+			time.Sleep(time.Second * 60)
 		}
 	}()
 }
