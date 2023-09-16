@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/valyala/fasthttp"
 	"go.mongodb.org/mongo-driver/bson"
@@ -341,6 +342,18 @@ func main() {
 		return err
 	})
 	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
+		sendErrorToast := func() error {
+			errorToast := make(map[string]any)
+			errorToast["toastId"] = "toast-" + uuid.New().String()
+			errorToast["toast"] = "Failed to login or create account."
+
+			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
+			ctx.Response.Header.Set("HX-Reswap", "beforeend")
+			ctx.Response.Header.Set("HX-Retarget", "#toastContainer")
+
+			return templates.ExecuteTemplate(ctx, "toast", errorToast)
+		}
+
 		args := ctx.PostArgs()
 		if !args.Has("username") || !args.Has("password") {
 			return nil
@@ -357,7 +370,7 @@ func main() {
 			if err == mongo.ErrNoDocuments {
 				passHash, err := auth.HashPassword(password)
 				if err != nil {
-					return err
+					return sendErrorToast()
 				}
 				user = User{
 					Username:      username,
@@ -366,17 +379,15 @@ func main() {
 				}
 				err = mongoClient.CreateUser(&user)
 				if err != nil {
-					return err
+					return sendErrorToast()
 				}
 			} else {
-				return err
+				return sendErrorToast()
 			}
 		}
 
 		if b, err := auth.VerifyPassword(password, user.Password); b == false || err != nil {
-			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-			ctx.Response.Header.Set("HX-Reswap", "none")
-			return nil
+			return sendErrorToast()
 		}
 
 		jwtPayload := &auth.JwtPayload{
@@ -387,7 +398,7 @@ func main() {
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
 		if err != nil {
-			return err
+			return sendErrorToast()
 		}
 
 		sCookie, rCookie := createTokenCookies(sToken, rToken, false)
