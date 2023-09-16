@@ -56,8 +56,8 @@ func (m *MongoClient) GetMessages(serverId string, channelId string) ([]Message,
 	//	"server":  serverId,
 	//	"channel": channelId,
 	//}
-	cursor, err := m.client.Database("disgord").Collection("messages").Find(context.TODO(),
-		options.Find())
+	cursor, err := m.client.Database("disgord").Collection("messages").Find(context.TODO(), bson.D{},
+		options.Find().SetSort(bson.M{"timestamp": 1}).SetLimit(50))
 	if err != nil {
 		return nil, err
 	}
