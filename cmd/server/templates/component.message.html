@@ -3,7 +3,7 @@
         <div class="justify-center items-center absolute hidden top-1 right-1 group-hover:flex">
             <button hx-delete="/message/{{formatObjectId .ID}}" hx-swap="none" class="w-8 h-8 p-2 text-gray-400 bg-neutral-800 hover:text-white rounded-md hover:bg-slate-900" aria-label="Delete Message">{{template "icTrash"}}</button>
         </div>
-        <img class="w-8 h-8 flex-shrink-0 flex-grow-0 rounded-full hover:shadow-xl hover:cursor-pointer" src="https://storage.googleapis.com/disgord-files/{{.AvatarObjectId}}" alt="{{ .Username }}'s avatar">
+        {{ template "avatar" createStringDict "AvatarObjectId" .AvatarObjectId "Username" .Username }}
         <div class="flex flex-col">
             <h3>
                 <span class="text-base cursor-pointer hover:underline">{{.Username}}</span>

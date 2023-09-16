@@ -239,9 +239,8 @@ func main() {
 	srv.GET("/", func(ctx *fasthttp.RequestCtx) error {
 		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
-		dataMap["username"] = token.(*auth.JwtPayload).Username
-		dataMap["hasAvatar"] = token.(*auth.JwtPayload).AvatarObjectId != ""
-		dataMap["avatarUrl"] = fmt.Sprintf("https://storage.googleapis.com/disgord-files/%s", token.(*auth.JwtPayload).AvatarObjectId)
+		dataMap["Username"] = token.(*auth.JwtPayload).Username
+		dataMap["AvatarObjectId"] = token.(*auth.JwtPayload).AvatarObjectId
 		dataMap["title"] = "Home - Disgord"
 
 		curServer := make(map[string]any)

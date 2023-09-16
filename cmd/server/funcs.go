@@ -9,9 +9,10 @@ import (
 
 func getFuncMap() template.FuncMap {
 	return template.FuncMap{
-		"getFirstLetter": getFirstLetter,
-		"formatTime":     formatTime,
-		"formatObjectId": formatObjectId,
+		"getFirstLetter":   getFirstLetter,
+		"formatTime":       formatTime,
+		"formatObjectId":   formatObjectId,
+		"createStringDict": createStringDict,
 	}
 }
 
@@ -31,4 +32,19 @@ func formatTime(t time.Time) string {
 
 func formatObjectId(objId primitive.ObjectID) string {
 	return objId.Hex()
+}
+
+func createStringDict(v ...interface{}) map[string]string {
+	dict := make(map[string]string)
+	if len(v)%2 != 0 {
+		return dict
+	}
+	for i := 0; i < len(v); i += 2 {
+		t, ok := v[i+1].(string)
+		if !ok {
+			t = ""
+		}
+		dict[v[i].(string)] = t
+	}
+	return dict
 }
