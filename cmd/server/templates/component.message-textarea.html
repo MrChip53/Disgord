@@ -1,6 +1,6 @@
 {{define "msgTextarea"}}
   <div class="flex flex-row items-center w-full bg-[#383a40] rounded-md pl-4 py-[10px]">
-    <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1]">
+    <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1] flex-shrink-0">
       {{template "icPlusCircle" }}
     </div>
     <textarea
@@ -13,7 +13,7 @@
             class="w-full min-h-[44px] box-border bg-transparent outline-none resize-none"
             placeholder="Message"
             name="message"></textarea>
-    <div class="flex flex-row ml-4">
+    <div class="flex flex-row ml-4 flex-shrink-0">
       <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1]">
         {{template "icGift" }}
       </div>
