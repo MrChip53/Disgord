@@ -1,5 +1,8 @@
 {{define "msgTextarea"}}
-  <div class="w-full h-full bg-[#383a40] rounded-md px-4 py-1">
+  <div class="flex flex-row items-center w-full bg-[#383a40] rounded-md pl-4 py-[10px]">
+    <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1]">
+      {{template "icPlusCircle" }}
+    </div>
     <textarea
             id="main-window_messageInput"
             _="on clearMsgTextarea put '' into my.value end
@@ -7,8 +10,19 @@
             hx-post="/message/new"
             hx-trigger="keyup[keyCode==13&&!shiftKey]"
             hx-swap="none"
-            class="w-full h-full box-border bg-transparent outline-none resize-none"
+            class="w-full min-h-[44px] box-border bg-transparent outline-none resize-none"
             placeholder="Message"
             name="message"></textarea>
+    <div class="flex flex-row ml-4">
+      <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1]">
+        {{template "icGift" }}
+      </div>
+      <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1]">
+        {{template "icGif" }}
+      </div>
+      <div class="cursor-pointer h-6 w-6 mr-4 transition-colors ease-in-out text-[#b5bac1] hover:text-[#dbdee1]">
+        {{template "icEmoji" }}
+      </div>
+    </div>
   </div>
 {{end}}
