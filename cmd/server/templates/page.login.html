@@ -1,6 +1,6 @@
 {{ define "loginPage" }}
     {{template "openHTML" .}}
-        <form class="flex items-center justify-center w-screen h-screen bg-neutral-700" hx-boost="true" action="/login" method="post">
+        <form _="on loginFailed put '' into #password.value end" class="flex items-center justify-center w-screen h-screen bg-neutral-700 relative" hx-boost="true" action="/login" method="post">
             <div class="flex flex-col w-1/2">
                 <div class="flex justify-center w-full">
                     <h3 class=" font-bold">Login</h3>
@@ -10,7 +10,7 @@
                 </div>
                 <div class="w-full py-2 px-4 rounded-md bg-neutral-600 mb-4">
                     <input
-                            _="on loginFailed console.log(me) end"
+                            id="password"
                             class="w-full bg-transparent outline-none" type="password" name="password" placeholder="Password" />
                 </div>
                 <input
@@ -18,6 +18,6 @@
                         type="submit" name="submit" value="Login" />
             </div>
         </form>
-        <div id="toastContainer" class="absolute bottom-2 right-2 z-50"></div>
+        <div id="toastContainer" class="flex flex-col gap-2 absolute bottom-2 right-2 z-50"></div>
     {{template "closeHTML" .}}
 {{ end }}
