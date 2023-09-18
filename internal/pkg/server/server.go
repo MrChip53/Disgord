@@ -14,9 +14,10 @@ type HandlerFunc = func(ctx *fasthttp.RequestCtx) error
 type MiddlewareFunc = func(ctx *fasthttp.RequestCtx, next func())
 
 type Handler struct {
-	handler   HandlerFunc
-	re        *regexp.Regexp
-	variables []string
+	handler    HandlerFunc
+	re         *regexp.Regexp
+	variables  []string
+	slashCount int
 }
 
 type Server struct {
@@ -45,6 +46,7 @@ func (s *Server) addRoute(route string, method string, handlerFunc func(ctx *fas
 	}
 	if len(matches) > 0 {
 		variables := make([]string, len(matches))
+		handler.slashCount = strings.Count(route, "/")
 		for i, match := range matches {
 			variables[i] = match[1]
 		}
@@ -115,7 +117,8 @@ func (s *Server) getRouteHandler(method string, route string) (*Handler, bool) {
 func (s *Server) findHandlerRegex(method string, route string) (*Handler, bool) {
 	key := method + ":"
 	for k, v := range s.routeHandlers {
-		if v.re == nil || !strings.HasPrefix(k, key) {
+		count := strings.Count(route, "/")
+		if v.re == nil || !strings.HasPrefix(k, key) || v.slashCount != count {
 			continue
 		}
 		matchString := v.re.MatchString(route)

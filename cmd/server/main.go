@@ -259,22 +259,15 @@ func main() {
 		return nil
 	})
 	srv.GET("/", func(ctx *fasthttp.RequestCtx) error {
-		dataMap := make(map[string]any)
 		token := ctx.UserValue("token")
-		dataMap["Username"] = token.(*auth.JwtPayload).Username
-		dataMap["AvatarObjectId"] = token.(*auth.JwtPayload).AvatarObjectId
-		dataMap["title"] = "Home - Disgord"
-		servers, err := mongoClient.GetServers()
+		userId := token.(*auth.JwtPayload).UserId
+		user, err := mongoClient.GetUser(userId)
 		if err != nil {
 			return err
 		}
-		dataMap["Servers"] = servers
-		dataMap["Server"] = servers[0]
-		msgs, err := mongoClient.GetMessages("000000000000000000000000", "000000000000000000000000")
-		if err == nil {
-			dataMap["Messages"] = msgs
-		}
-		return templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
+		uri := fmt.Sprintf("/server/%s/channel/%s", user.LastActiveServer.Hex(), user.LastActiveChannel.Hex())
+		redirect(uri, 302, ctx)
+		return nil
 	})
 	srv.GET("/messages", func(ctx *fasthttp.RequestCtx) error {
 		dataMap := make(map[string]any)
@@ -346,7 +339,32 @@ func main() {
 				break
 			}
 		}
+		serverO, err := primitive.ObjectIDFromHex(serverId)
+		if err != nil {
+			return err
+		}
+		channelO, err := primitive.ObjectIDFromHex(channelId)
+		if err != nil {
+			return err
+		}
+		update := bson.M{
+			"$set": bson.M{"lastActiveServer": serverO, "lastActiveChannel": channelO},
+		}
+		err = mongoClient.UpdateUser(token.(*auth.JwtPayload).UserId, update)
+		if err != nil {
+			log.Println(err)
+		}
 		return templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
+	})
+	srv.GET("/server/{serverId}", func(ctx *fasthttp.RequestCtx) error {
+		serverId := ctx.UserValue("serverId").(string)
+		s, err := mongoClient.GetServer(serverId)
+		if err != nil {
+			return err
+		}
+		uri := fmt.Sprintf("/server/%s/channel/%s", serverId, s.Channels[0].ID.Hex())
+		redirect(uri, 302, ctx)
+		return nil
 	})
 
 	srv.GET("/ws", func(ctx *fasthttp.RequestCtx) error {

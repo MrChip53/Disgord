@@ -86,6 +86,44 @@ func (m *MongoClient) GetServers() ([]Server, error) {
 	return results, nil
 }
 
+func (m *MongoClient) GetServer(serverId string) (*Server, error) {
+	serverO, err := primitive.ObjectIDFromHex(serverId)
+	if err != nil {
+		return nil, err
+	}
+	pipeline := mongo.Pipeline{
+		bson.D{
+			{"$lookup", bson.D{
+				{"from", "channels"},
+				{"localField", "_id"},
+				{"foreignField", "serverId"},
+				{"as", "channels"},
+			}},
+		},
+		bson.D{
+			{"$match", bson.D{
+				{"_id", serverO},
+			}},
+		},
+		bson.D{
+			{"$limit", 1},
+		},
+	}
+	cursor, err := m.client.Database("disgord").Collection("servers").Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+	if cursor.Next(context.Background()) {
+		var server Server
+		if err := cursor.Decode(&server); err != nil {
+			return nil, err
+		}
+		return &server, nil
+	}
+	return nil, nil
+}
+
 func (m *MongoClient) CreateMessage(msg *Message) (primitive.ObjectID, error) {
 	o, err := m.client.Database("disgord").Collection("messages").InsertOne(context.TODO(), bson.M{
 		"server":         msg.Server,
@@ -125,6 +163,33 @@ func (m *MongoClient) GetMessages(serverId string, channelId string) ([]Message,
 		return nil, err
 	}
 	return messages, nil
+}
+
+func (m *MongoClient) GetUser(id string) (*User, error) {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	var user User
+	filter := bson.M{
+		"_id": objectID,
+	}
+	err = m.client.Database("disgord").Collection("users").FindOne(context.TODO(), filter).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (m *MongoClient) UpdateUser(userId string, update bson.M) error {
+	objectID, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return err
+	}
+	filter := bson.M{"_id": objectID}
+	coll := m.client.Database("disgord").Collection("users")
+	_, err = coll.UpdateOne(context.Background(), filter, update)
+	return err
 }
 
 func (m *MongoClient) GetMessage(id string) (*Message, error) {
