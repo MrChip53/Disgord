@@ -5,7 +5,12 @@
             <header class="py-3 px-4 relative">
                 <div class="flex items-center h-6">
                     <div class="flex-1 select-none cursor-default">
-                        Channel Name
+                        {{ if .ChannelId }}
+                            {{ $channel := getChannel .ChannelId .Server.Channels }}
+                            {{ if $channel }}#{{ $channel.Name }}{{ end }}
+                        {{ else }}
+                            #global-chat
+                        {{ end }}
                     </div>
                     <div class="relative">
                         Buttons here
@@ -24,7 +29,7 @@
         </div>
     </section>
     <section class="flex-shrink-0 p-2 max-h-[50vh]">
-        {{template "msgTextarea"}}
+        {{template "msgTextarea" .}}
     </section>
 </div>
 {{ end }}

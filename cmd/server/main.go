@@ -27,24 +27,46 @@ import (
 )
 
 type User struct {
-	ID             primitive.ObjectID `bson:"_id"`
-	Username       string
-	LowerUsername  string
-	Password       string
-	AvatarObjectId string
+	ID                primitive.ObjectID `bson:"_id"`
+	LastActiveServer  primitive.ObjectID `bson:"lastActiveServer"`
+	LastActiveChannel primitive.ObjectID `bson:"lastActiveChannel"`
+	Username          string             `bson:"username"`
+	LowerUsername     string             `bson:"lowerUsername"`
+	Password          string             `bson:"password"`
+	AvatarObjectId    string             `bson:"avatarObjectId"`
+}
+
+type ServerMemberships struct {
+	ID       primitive.ObjectID `bson:"_id"`
+	UserId   primitive.ObjectID `bson:"userId"`
+	ServerId primitive.ObjectID `bson:"serverId"`
+	IsOwner  bool               `bson:"isOwner"`
 }
 
 type Message struct {
 	ID             primitive.ObjectID `bson:"_id"`
-	Server         primitive.ObjectID
-	Channel        primitive.ObjectID
-	AuthorId       primitive.ObjectID
-	Username       string
-	AvatarObjectId string
-	Timestamp      time.Time `bson:"timestamp"`
-	Type           int
-	Message        string
-	Command        string
+	Server         primitive.ObjectID `bson:"server"`
+	Channel        primitive.ObjectID `bson:"channel"`
+	AuthorId       primitive.ObjectID `bson:"authorId"`
+	Username       string             `bson:"username"`
+	AvatarObjectId string             `bson:"avatarObjectId"`
+	Timestamp      time.Time          `bson:"timestamp"`
+	Type           int                `bson:"type"`
+	Message        string             `bson:"message"`
+	Command        string             `bson:"command"`
+}
+
+type Server struct {
+	ID       primitive.ObjectID `bson:"_id"`
+	Name     string             `bson:"name"`
+	Channels []Channel          `bson:"channels,omitempty"`
+}
+
+type Channel struct {
+	ID       primitive.ObjectID `bson:"_id"`
+	Name     string             `bson:"name"`
+	ServerId primitive.ObjectID `bson:"serverId"`
+	Type     int                `bson:"type"`
 }
 
 var templates *template.Template
@@ -242,30 +264,17 @@ func main() {
 		dataMap["Username"] = token.(*auth.JwtPayload).Username
 		dataMap["AvatarObjectId"] = token.(*auth.JwtPayload).AvatarObjectId
 		dataMap["title"] = "Home - Disgord"
-
-		curServer := make(map[string]any)
-		channels := make(map[string][]string)
-		generalChannels := []string{"general", "off-topic", "bot", "spam", "game"}
-		textChannels := []string{"Test Text", "Test Text 2"}
-		voiceChannels := []string{"Test Voice", "Test Voice 2"}
-		channels["General"] = generalChannels
-		channels["Text Channels"] = textChannels
-		channels["Voice Channels"] = voiceChannels
-
-		curServer["Channels"] = channels
-		dataMap["Server"] = curServer
-
-		msgs, err := mongoClient.GetMessages("", "")
+		servers, err := mongoClient.GetServers()
+		if err != nil {
+			return err
+		}
+		dataMap["Servers"] = servers
+		dataMap["Server"] = servers[0]
+		msgs, err := mongoClient.GetMessages("000000000000000000000000", "000000000000000000000000")
 		if err == nil {
 			dataMap["Messages"] = msgs
 		}
-
-		err = templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
-		if err != nil {
-			log.Print(err)
-			return err
-		}
-		return nil
+		return templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
 	})
 	srv.GET("/messages", func(ctx *fasthttp.RequestCtx) error {
 		dataMap := make(map[string]any)
@@ -310,6 +319,35 @@ func main() {
 		}
 		return nil
 	})
+	srv.GET("/server/{serverId}/channel/{channelId}", func(ctx *fasthttp.RequestCtx) error {
+		dataMap := make(map[string]any)
+		token := ctx.UserValue("token")
+		dataMap["Username"] = token.(*auth.JwtPayload).Username
+		dataMap["AvatarObjectId"] = token.(*auth.JwtPayload).AvatarObjectId
+		dataMap["title"] = "Disgord"
+		serverId := ctx.UserValue("serverId").(string)
+		channelId := ctx.UserValue("channelId").(string)
+		dataMap["ServerId"] = serverId
+		dataMap["ChannelId"] = channelId
+		msgs, err := mongoClient.GetMessages(serverId, channelId)
+		dataMap["MessagesError"] = err != nil
+		if err == nil {
+			dataMap["Messages"] = msgs
+		}
+		servers, err := mongoClient.GetServers()
+		if err != nil {
+			return err
+		}
+		dataMap["Servers"] = servers
+		for _, s := range servers {
+			if s.ID.Hex() == serverId {
+				dataMap["Server"] = s
+				dataMap["title"] = s.Name + " - Disgord"
+				break
+			}
+		}
+		return templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
+	})
 
 	srv.GET("/ws", func(ctx *fasthttp.RequestCtx) error {
 		return nil
@@ -350,6 +388,83 @@ func main() {
 		return nil
 	})
 
+	srv.POST("/server/{serverId}/channel/{channelId}/message/new", func(ctx *fasthttp.RequestCtx) error {
+		serverId := ctx.UserValue("serverId").(string)
+		channelId := ctx.UserValue("channelId").(string)
+		serverObj, err := primitive.ObjectIDFromHex(serverId)
+		if err != nil {
+			return err
+		}
+		channelObj, err := primitive.ObjectIDFromHex(channelId)
+		if err != nil {
+			return err
+		}
+
+		args := ctx.PostArgs()
+		if !args.Has("message") {
+			ctx.SetStatusCode(400)
+			return nil
+		}
+
+		msgStr := strings.Trim(string(args.Peek("message")), " ")
+		cmd := ""
+		if strings.HasPrefix(msgStr, "/") {
+			msgStr, cmd = handleCommand(msgStr)
+		}
+
+		authId, err := primitive.ObjectIDFromHex(ctx.UserValue("token").(*auth.JwtPayload).UserId)
+		if err != nil {
+			return err
+		}
+
+		msg := Message{
+			Message:        msgStr,
+			AuthorId:       authId,
+			Command:        cmd,
+			Username:       ctx.UserValue("token").(*auth.JwtPayload).Username,
+			Timestamp:      time.Now().UTC(),
+			Type:           0,
+			AvatarObjectId: ctx.UserValue("token").(*auth.JwtPayload).AvatarObjectId,
+			Channel:        channelObj,
+			Server:         serverObj,
+		}
+
+		if len(msg.Message) < 1 {
+			ctx.SetStatusCode(400)
+			return nil
+		}
+
+		id, err := mongoClient.CreateMessage(&msg)
+		if err != nil {
+			return err
+		}
+
+		dataMap := make(map[string]any)
+		dataMap["ID"] = id
+		dataMap["AuthorId"] = msg.AuthorId
+		dataMap["Message"] = msg.Message
+		dataMap["Command"] = msg.Command
+		dataMap["Username"] = msg.Username
+		dataMap["AvatarObjectId"] = msg.AvatarObjectId
+		dataMap["Timestamp"] = msg.Timestamp
+		dataMap["Type"] = msg.Type
+
+		ctx.Response.Header.Set("HX-Trigger", "clearMsgTextarea")
+		ctx.Response.Header.Set("HX-Reswap", "none")
+
+		var buf bytes.Buffer
+		err = templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
+		ctx.Write(buf.Bytes())
+		if err == nil {
+			html := string(buf.Bytes())
+			html = strings.ReplaceAll(html, "\r", "")
+			html = strings.ReplaceAll(html, "\n", "")
+			sseBytes := []byte(html)
+			sseServer.SendBytes("1", "newMessage", sseBytes)
+		}
+
+		return err
+	})
 	srv.POST("/message/new", func(ctx *fasthttp.RequestCtx) error {
 		args := ctx.PostArgs()
 		if !args.Has("message") {
@@ -439,7 +554,7 @@ func main() {
 					LowerUsername: strings.ToLower(username),
 					Password:      passHash,
 				}
-				err = mongoClient.CreateUser(&user)
+				_, err = mongoClient.CreateUser(&user)
 				if err != nil {
 					ctx.Response.Header.Set("HX-Trigger", "loginFailed")
 					return sendErrorToast(ctx, "Failed to login or create account")
@@ -535,8 +650,8 @@ func main() {
 		return sendErrorToast(ctx, "User settings saved")
 	})
 
-	srv.DELETE("/message/.*?", func(ctx *fasthttp.RequestCtx) error {
-		mId := string(ctx.Path())[9:]
+	srv.DELETE("/message/{messageId}", func(ctx *fasthttp.RequestCtx) error {
+		mId := ctx.UserValue("messageId").(string)
 		message, err := mongoClient.GetMessage(mId)
 		if err != nil {
 			return sendErrorToast(ctx, "Failed to delete message")

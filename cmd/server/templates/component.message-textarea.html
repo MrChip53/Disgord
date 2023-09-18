@@ -7,7 +7,7 @@
             id="main-window_messageInput"
             _="on clearMsgTextarea put '' into my.value end
             on keydown if event.keyCode is 13 and not event.shiftKey then event.preventDefault() end"
-            hx-post="/message/new"
+            hx-post="/server/{{.ServerId}}/channel/{{.ChannelId}}/message/new"
             hx-trigger="keyup[keyCode==13&&!shiftKey]"
             hx-swap="none"
             class="w-full min-h-[44px] box-border bg-transparent outline-none resize-none"

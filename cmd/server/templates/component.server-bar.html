@@ -5,10 +5,12 @@
         L
     </div>
     <div class="bg-[#35363c] rounded-md w-1/2 h-[2px]">&nbsp;</div>
-    <div class="flex items-center justify-center w-12 h-12 bg-[#313338] hover:bg-[#5865f2] transition-colors ease-in-out rounded-full relative">
-        <a class="absolute top-0 bottom-0 left-0 right-0" href="/server/1"></a>
-        S
-    </div>
+    {{ range $server := .Servers }}
+        <div class="flex items-center justify-center w-12 h-12 bg-[#313338] hover:bg-[#5865f2] transition-colors ease-in-out rounded-full relative">
+            <a class="absolute top-0 bottom-0 left-0 right-0" href="/server/{{ formatObjectId $server.ID }}"></a>
+            {{ getFirstLetter $server.Name }}
+        </div>
+    {{ end }}
     <div class="flex items-center justify-center cursor-pointer w-12 h-12 transition-colors ease-in-out bg-[#313338] hover:bg-[#23a559] text-[#23a559] hover:text-white rounded-full relative">
         <div class="w-6 h-6">
             {{ template "icPlus" }}

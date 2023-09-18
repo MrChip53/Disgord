@@ -6,6 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"log"
 	"os"
 )
 
@@ -29,16 +30,63 @@ func (m *MongoClient) Close() {
 	}
 }
 
-func (m *MongoClient) CreateUser(user *User) error {
-	_, err := m.client.Database("disgord").Collection("users").InsertOne(context.TODO(), bson.M{
+func (m *MongoClient) CreateUser(user *User) (primitive.ObjectID, error) {
+	o, err := m.client.Database("disgord").Collection("users").InsertOne(context.TODO(), bson.M{
 		"username":      user.Username,
 		"lowerUsername": user.LowerUsername,
 		"password":      user.Password,
 	})
-	return err
+	return o.InsertedID.(primitive.ObjectID), err
 }
 
-func (m *MongoClient) CreateMessage(msg *Message) (interface{}, error) {
+func (m *MongoClient) CreateChannel(channel *Channel) (primitive.ObjectID, error) {
+	o, err := m.client.Database("disgord").Collection("channels").InsertOne(context.TODO(), bson.M{
+		"name":     channel.Name,
+		"serverId": channel.ServerId,
+		"type":     channel.Type,
+	})
+	return o.InsertedID.(primitive.ObjectID), err
+}
+
+func (m *MongoClient) CreateServer(server *Server) (primitive.ObjectID, error) {
+	o, err := m.client.Database("disgord").Collection("servers").InsertOne(context.TODO(), bson.M{
+		"name": server.Name,
+	})
+	return o.InsertedID.(primitive.ObjectID), err
+}
+
+func (m *MongoClient) GetServers() ([]Server, error) {
+	pipeline := []bson.M{
+		{
+			"$lookup": bson.M{
+				"from":         "channels",
+				"localField":   "_id",
+				"foreignField": "serverId",
+				"as":           "channels",
+			},
+		},
+	}
+
+	cursor, err := m.client.Database("disgord").Collection("servers").Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+	var results []Server
+	for cursor.Next(context.Background()) {
+		var server Server
+		if err := cursor.Decode(&server); err != nil {
+			log.Fatalf("Failed to decode document: %v", err)
+		}
+		results = append(results, server)
+	}
+	if err := cursor.Err(); err != nil {
+		log.Fatalf("Cursor error: %v", err)
+	}
+	return results, nil
+}
+
+func (m *MongoClient) CreateMessage(msg *Message) (primitive.ObjectID, error) {
 	o, err := m.client.Database("disgord").Collection("messages").InsertOne(context.TODO(), bson.M{
 		"server":         msg.Server,
 		"channel":        msg.Channel,
@@ -50,16 +98,25 @@ func (m *MongoClient) CreateMessage(msg *Message) (interface{}, error) {
 		"message":        msg.Message,
 		"command":        msg.Command,
 	})
-	return o.InsertedID, err
+	return o.InsertedID.(primitive.ObjectID), err
 }
 
 func (m *MongoClient) GetMessages(serverId string, channelId string) ([]Message, error) {
+	serverO, err := primitive.ObjectIDFromHex(serverId)
+	if err != nil {
+		return nil, err
+	}
+	channelO, err := primitive.ObjectIDFromHex(channelId)
+	if err != nil {
+		return nil, err
+	}
+
 	var messages []Message
-	//filter := bson.M{
-	//	"server":  serverId,
-	//	"channel": channelId,
-	//}
-	cursor, err := m.client.Database("disgord").Collection("messages").Find(context.TODO(), bson.D{},
+	filter := bson.M{
+		"server":  serverO,
+		"channel": channelO,
+	}
+	cursor, err := m.client.Database("disgord").Collection("messages").Find(context.TODO(), filter,
 		options.Find().SetSort(bson.M{"timestamp": 1}).SetLimit(50))
 	if err != nil {
 		return nil, err

@@ -13,8 +13,14 @@ import (
 type HandlerFunc = func(ctx *fasthttp.RequestCtx) error
 type MiddlewareFunc = func(ctx *fasthttp.RequestCtx, next func())
 
+type Handler struct {
+	handler   HandlerFunc
+	re        *regexp.Regexp
+	variables []string
+}
+
 type Server struct {
-	routeHandlers  map[string]HandlerFunc
+	routeHandlers  map[string]Handler
 	errorTemplates map[int]string
 	middlewares    []MiddlewareFunc
 	mwLock         sync.Mutex
@@ -23,15 +29,33 @@ type Server struct {
 
 func New(templates *template.Template) (*Server, error) {
 	s := &Server{
-		routeHandlers:  make(map[string]HandlerFunc),
+		routeHandlers:  make(map[string]Handler),
 		errorTemplates: make(map[int]string),
 		templates:      templates,
 	}
 	return s, nil
 }
 
-func (s *Server) addRoute(route string, method string, handler func(ctx *fasthttp.RequestCtx) error) {
-	s.routeHandlers[method+":"+route] = handler
+func (s *Server) addRoute(route string, method string, handlerFunc func(ctx *fasthttp.RequestCtx) error) {
+	key := method + ":" + route
+	re := regexp.MustCompile("{([^}]+)}")
+	matches := re.FindAllStringSubmatch(route, -1)
+	handler := Handler{
+		handler: handlerFunc,
+	}
+	if len(matches) > 0 {
+		variables := make([]string, len(matches))
+		for i, match := range matches {
+			variables[i] = match[1]
+		}
+		handler.variables = variables
+
+		newRoute := re.ReplaceAllString("^"+route+"$", "(.*?)")
+		newRoute = strings.ReplaceAll(newRoute, "/", "\\/")
+		key = method + ":" + newRoute
+		handler.re = regexp.MustCompile(newRoute)
+	}
+	s.routeHandlers[key] = handler
 }
 
 func (s *Server) GET(route string, handler func(ctx *fasthttp.RequestCtx) error) {
@@ -73,10 +97,10 @@ func (s *Server) error(errorCode int, ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool) {
+func (s *Server) getRouteHandler(method string, route string) (*Handler, bool) {
 	handler, ok := s.routeHandlers[method+":"+route]
-
 	if !ok {
+		// TODO remove/fix this with better implementation
 		if strings.Contains(route, ".") {
 			lastIndex := strings.LastIndex(route, "/")
 			return s.getRouteHandler(method, route[:lastIndex+1]+"*")
@@ -85,15 +109,18 @@ func (s *Server) getRouteHandler(method string, route string) (HandlerFunc, bool
 		}
 	}
 
-	return handler, ok
+	return &handler, ok
 }
 
-func (s *Server) findHandlerRegex(method string, route string) (HandlerFunc, bool) {
-	key := method + ":" + route
+func (s *Server) findHandlerRegex(method string, route string) (*Handler, bool) {
+	key := method + ":"
 	for k, v := range s.routeHandlers {
-		matchString, _ := regexp.MatchString(k, key)
+		if v.re == nil || !strings.HasPrefix(k, key) {
+			continue
+		}
+		matchString := v.re.MatchString(route)
 		if matchString {
-			return v, true
+			return &v, true
 		}
 	}
 	return nil, false
@@ -114,13 +141,22 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		method := string(ctx.Method())
-		handler, ok := s.getRouteHandler(method, string(ctx.Path()))
+		path := string(ctx.Path())
+		handler, ok := s.getRouteHandler(method, path)
 		if !ok {
 			log.Println("no handler found for route: ", string(ctx.Path()))
 			s.error(404, ctx)
 			return
 		}
-		err := handler(ctx)
+		if len(handler.variables) > 0 {
+			matches := handler.re.FindStringSubmatch(string(ctx.Path()))
+			if len(matches) > 0 {
+				for i, match := range matches[1:] {
+					ctx.SetUserValue(handler.variables[i], match)
+				}
+			}
+		}
+		err := handler.handler(ctx)
 		if err != nil {
 			log.Println("error running handler: ", err)
 			s.error(500, ctx)

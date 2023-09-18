@@ -13,6 +13,7 @@ func getFuncMap() template.FuncMap {
 		"formatTime":       formatTime,
 		"formatObjectId":   formatObjectId,
 		"createStringDict": createStringDict,
+		"getChannel":       getChannel,
 	}
 }
 
@@ -34,6 +35,16 @@ func formatObjectId(objId primitive.ObjectID) string {
 	return objId.Hex()
 }
 
+func getChannel(channelId string, channels []Channel) *Channel {
+	for _, channel := range channels {
+		if channel.ID.Hex() == channelId {
+			return &channel
+		}
+	}
+	return nil
+}
+
+// TODO this could probably be done better
 func createStringDict(v ...interface{}) map[string]string {
 	dict := make(map[string]string)
 	if len(v)%2 != 0 {

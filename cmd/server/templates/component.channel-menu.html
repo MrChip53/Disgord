@@ -5,7 +5,7 @@
             <header class="py-3 px-4 relative cursor-pointer hover:bg-[#36373d] transition-colors ease-in-out">
                 <div class="flex items-center h-6">
                     <div class="flex-1 select-none">
-                        Server Name
+                        {{ .Server.Name }}
                     </div>
                     <div class="relative w-4 h-4">
                         {{ template "icChevronDown" }}
@@ -15,12 +15,14 @@
         </div>
         <div class="min-h-0 overflow-x-hidden overflow-y-auto">
             <ul class="relative list-none pt-4">
-            {{ range $key, $channels := .Server.Channels }}
-                <li class="ms-1 me-2 hover:text-[#dbdee1] text-[#9198a1] transition-colors ease-in-out cursor-pointer select-none"><strong>{{ $key }}</strong></li>
-                {{ range $channel := $channels }}
-                <li class="rounded-md py-2 px-3 mx-2 hover:bg-[#36373d] hover:text-[#dbdee1] text-[#9198a1] transition-colors ease-in-out cursor-pointer select-none">#{{ $channel }}</li>
+                {{ $curCId := .ChannelId }}
+                {{ range $channel := .Server.Channels }}
+                    {{ $channelId := formatObjectId .ID }}
+    <!--                <li class="ms-1 me-2 hover:text-[#dbdee1] text-[#9198a1] transition-colors ease-in-out cursor-pointer select-none"><strong>Category</strong></li>-->
+    <!--                 range $channel := $channels -->
+                    <li hx-get="/server/{{formatObjectId .ServerId}}/channel/{{$channelId}}" hx-push-url="true" hx-target="#mainBody" hx-swap="innerHTML" class="{{ if eq $channelId $curCId}} bg-[#404249] text-[#dbdee1] {{ else }} hover:bg-[#36373d] hover:text-[#dbdee1] text-[#9198a1] transition-colors ease-in-out {{ end }} rounded-md py-2 px-3 mx-2 cursor-pointer select-none">#{{ .Name }}</li>
+    <!--                 end -->
                 {{ end }}
-            {{ end }}
             </ul>
         </div>
     </nav>
