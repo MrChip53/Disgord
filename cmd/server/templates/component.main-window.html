@@ -24,7 +24,7 @@
           on htmx:sseMessage if event.detail.type is 'deleteMessage' then remove #{event.detail.data} end"
             id="main-window_messageWindow"
             class="flex flex-col overflow-x-hidden overflow-y-auto"
-            hx-ext="sse" sse-connect="/messages/sse" sse-swap="newMessage" hx-swap="beforeend" hx-trigger="sse:deleteMessage">
+            hx-ext="sse" sse-connect="/messages/sse/{{.ServerId}}/{{.ChannelId}}" sse-swap="newMessage" hx-swap="beforeend" hx-trigger="sse:deleteMessage">
             {{ template "messages" . }}
         </div>
     </section>

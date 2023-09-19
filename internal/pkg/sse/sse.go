@@ -7,14 +7,25 @@ import (
 )
 
 type Client struct {
-	Username string
-	Channel  chan Event
+	UserId    string
+	Username  string
+	ServerId  string
+	ChannelId string
+	Channel   chan Event
+}
+
+type ClientEvent struct {
+	UserId    string
+	ServerId  string
+	ChannelId string
 }
 
 type Event struct {
-	Id    string
-	Event string
-	Data  []byte
+	ServerId  string
+	ChannelId string
+	Id        string
+	Event     string
+	Data      []byte
 }
 
 type Server struct {
@@ -22,6 +33,7 @@ type Server struct {
 	clients       map[Client]bool
 	connecting    chan Client
 	disconnecting chan Client
+	clientUpdate  chan ClientEvent
 	bufSize       uint
 }
 
@@ -31,6 +43,7 @@ func New() *Server {
 		clients:       make(map[Client]bool),
 		connecting:    make(chan Client),
 		disconnecting: make(chan Client),
+		clientUpdate:  make(chan ClientEvent),
 		bufSize:       2,
 	}
 
@@ -50,10 +63,13 @@ func (s *Server) run() {
 				log.Printf("sse client disconnected. connected clients: %d\n", len(s.clients))
 			case event := <-s.event:
 				log.Printf("new sse event. event: %s\n", event.String())
-				for cl := range s.clients {
+				for v := range s.clients {
+					if (event.ServerId != "" && event.ServerId != v.ServerId) || (event.ChannelId != "" && event.ChannelId != v.ChannelId) {
+						continue
+					}
 					// TODO: non-blocking broadcast
 					select {
-					case cl.Channel <- event: // Try to send event to client
+					case v.Channel <- event: // Try to send event to client
 					default:
 						fmt.Println("Channel full. Discarding value")
 					}
@@ -68,9 +84,9 @@ func (s *Server) run() {
 				Event: "ping",
 				Data:  []byte("ping"),
 			}
-			for cl := range s.clients {
+			for v := range s.clients {
 				select {
-				case cl.Channel <- event:
+				case v.Channel <- event:
 				default:
 					fmt.Println("Channel full. Discarding value")
 				}
@@ -84,10 +100,12 @@ func (s *Server) SetBufferSize(size uint) {
 	s.bufSize = size
 }
 
-func (s *Server) MakeClient(username string) *Client {
+func (s *Server) MakeClient(username string, serverId string, channelId string) *Client {
 	c := &Client{
-		Username: username,
-		Channel:  make(chan Event, s.bufSize),
+		Username:  username,
+		Channel:   make(chan Event, s.bufSize),
+		ServerId:  serverId,
+		ChannelId: channelId,
 	}
 	s.connecting <- *c
 	return c
@@ -102,6 +120,17 @@ func (s *Server) SendBytes(id string, event string, b []byte) {
 		Id:    id,
 		Event: event,
 		Data:  b,
+	}
+	s.event <- e
+}
+
+func (s *Server) SendMessage(id string, event string, b []byte, serverId string, channelId string) {
+	e := Event{
+		ServerId:  serverId,
+		ChannelId: channelId,
+		Id:        id,
+		Event:     event,
+		Data:      b,
 	}
 	s.event <- e
 }

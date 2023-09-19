@@ -370,12 +370,14 @@ func main() {
 	srv.GET("/ws", func(ctx *fasthttp.RequestCtx) error {
 		return nil
 	})
-	srv.GET("/messages/sse", func(ctx *fasthttp.RequestCtx) error {
+	srv.GET("/messages/sse/{serverId}/{channelId}", func(ctx *fasthttp.RequestCtx) error {
 		notify := ctx.Done()
 		username := ctx.UserValue("token").(*auth.JwtPayload).Username
+		serverId := ctx.UserValue("serverId").(string)
+		channelId := ctx.UserValue("channelId").(string)
 		ctx.HijackSetNoResponse(true)
 		ctx.Hijack(func(c net.Conn) {
-			client := sseServer.MakeClient(username)
+			client := sseServer.MakeClient(username, serverId, channelId)
 			defer sseServer.DestroyClient(client)
 
 			httpMsg := []byte("HTTP/1.1 200 OK\r\n")
@@ -478,7 +480,7 @@ func main() {
 			html = strings.ReplaceAll(html, "\r", "")
 			html = strings.ReplaceAll(html, "\n", "")
 			sseBytes := []byte(html)
-			sseServer.SendBytes("1", "newMessage", sseBytes)
+			sseServer.SendMessage("1", "newMessage", sseBytes, serverId, channelId)
 		}
 
 		return err
