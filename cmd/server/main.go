@@ -299,6 +299,9 @@ func main() {
 		}
 		return nil
 	})
+	srv.GET("/user-settings", true, func(ctx *server.Context) error {
+		return templates.ExecuteTemplate(ctx.Context(), "userSettingsPage", nil)
+	})
 	srv.GET("/server/{serverId}", true, func(ctx *server.Context) error {
 		serverId := ctx.Context().UserValue("serverId").(string)
 		s, err := mongoClient.GetServer(serverId)

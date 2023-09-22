@@ -43,7 +43,7 @@
                         {{ template "icSpeaker" }}
                     </div>
                 </button>
-                <button hx-get="/settings" hx-swap="innerHTML" hx-target="#modalPortal" class="flex items-center justify-center w-8 h-8 cursor-pointer bg-transparent hover:bg-[#3d3e45] rounded-md">
+                <button hx-get="/user-settings" hx-swap="innerHTML" hx-target="#mainBody" hx-push-url="true" class="flex items-center justify-center w-8 h-8 cursor-pointer bg-transparent hover:bg-[#3d3e45] rounded-md">
                     <div class="w-5 h-5">
                         {{ template "icCog" }}
                     </div>

@@ -1,6 +1,7 @@
 {{ define "userSettingsModal" }}
+
+<div class="flex justify-center items-center absolute top-0 left-0 right-0 bottom-0 bg-neutral-900/70 z-40">
 <form name="userSettings" hx-encoding="multipart/form-data" hx-post="/user/settings" hx-swap="none">
-  <div class="flex justify-center items-center absolute top-0 left-0 right-0 bottom-0 bg-neutral-900/70 z-40">
     <div class="flex flex-col justify-between bg-blue-500/50 w-1/2 h-1/2 rounded-md p-4">
         <div class="flex flex-col">
           <h3>User Settings</h3>
@@ -12,6 +13,7 @@
           <input type="submit" value="Update">
         </div>
     </div>
-  </div>
 </form>
+<a href="/logout">Logout</a>
+</div>
 {{ end }}
