@@ -92,7 +92,9 @@ func watchTemplates(rootDir string) {
 	if err != nil {
 		log.Println("failed to start template watcher")
 	}
-	defer watcher.Close()
+	defer func() {
+		_ = watcher.Close()
+	}()
 	err = filepath.WalkDir(cleanRoot, func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return watcher.Add(path)
@@ -151,7 +153,9 @@ func main() {
 		fmt.Printf("Failed to create Google Cloud Storage client: %v\n", err)
 		return
 	}
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	mongoClient := NewMongo()
 	defer mongoClient.Close()
@@ -162,43 +166,24 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
-		path := string(ctx.Path())
-		if strings.HasPrefix(path, "/assets") {
-			if strings.HasSuffix(path, ".css") {
-				ctx.Response.Header.SetContentType("text/css")
-				ctx.SendFile("./public/" + path[8:])
-				return
-			} else if strings.HasSuffix(path, ".js") {
-				ctx.Response.Header.SetContentType("text/javascript")
-				ctx.SendFile("./public/" + path[8:])
-				return
-			}
-		}
-		ctx.Response.Header.SetContentType("text/html")
-		next()
-	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
-		sessionToken := ctx.Request.Header.Cookie("SessionToken")
+	srv.UseAuth(func(ctx *server.Context) bool {
+		sessionToken := ctx.Context().Request.Header.Cookie("SessionToken")
 		if len(sessionToken) == 0 {
-			refreshToken := ctx.Request.Header.Cookie("RefreshToken")
+			refreshToken := ctx.Context().Request.Header.Cookie("RefreshToken")
 			if len(refreshToken) == 0 {
-				next()
-				return
+				return false
 			}
 
 			refreshPayload, err := auth.VerifyRefreshToken(string(refreshToken))
 			if err != nil {
 				log.Printf("failed to verify refresh token: %s\n", err)
-				next()
-				return
+				return false
 			}
 
 			objectID, err := primitive.ObjectIDFromHex(refreshPayload.UserId)
 			if err != nil {
 				log.Printf("failed to parse object id: %s\n", err)
-				next()
-				return
+				return false
 			}
 
 			coll := mongoClient.client.Database("disgord").Collection("users")
@@ -206,8 +191,7 @@ func main() {
 			var user User
 			err = coll.FindOne(context.TODO(), filter).Decode(&user)
 			if err != nil {
-				next()
-				return
+				return false
 			}
 
 			jwtPayload := &auth.JwtPayload{
@@ -220,106 +204,121 @@ func main() {
 			sToken, rToken, err := auth.GenerateTokens(jwtPayload)
 			if err != nil {
 				log.Printf("failed to generate tokens: %s\n", err)
-				next()
-				return
+				return false
 			}
 
 			sCookie, rCookie := createTokenCookies(sToken, rToken, false)
-			ctx.Response.Header.SetCookie(sCookie)
-			ctx.Response.Header.SetCookie(rCookie)
-			ctx.SetUserValue("token", jwtPayload)
+			ctx.Context().Response.Header.SetCookie(sCookie)
+			ctx.Context().Response.Header.SetCookie(rCookie)
+			ctx.Context().SetUserValue("token", jwtPayload)
 		}
 
 		jwtToken, err := auth.VerifyJwtToken(string(sessionToken))
 		if err != nil {
 			log.Printf("failed to verify jwt token: %s\n", err)
-			next()
-			return
+			return false
 		}
 
-		ctx.SetUserValue("token", jwtToken)
+		ctx.Context().SetUserValue("token", jwtToken)
+		return true
+	})
 
+	srv.UseMiddleware(func(ctx *server.Context, next func()) {
+		path := string(ctx.Context().Path())
+		if strings.HasPrefix(path, "/assets") {
+			if strings.HasSuffix(path, ".css") {
+				ctx.Context().Response.Header.SetContentType("text/css")
+				ctx.Context().SendFile("./public/" + path[8:])
+				return
+			} else if strings.HasSuffix(path, ".js") {
+				ctx.Context().Response.Header.SetContentType("text/javascript")
+				ctx.Context().SendFile("./public/" + path[8:])
+				return
+			}
+		}
+		ctx.Context().Response.Header.SetContentType("text/html")
 		next()
 	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
-		if ctx.UserValue("token") == nil && string(ctx.Path()) != "/login" && string(ctx.Path()) != "/hp" && string(ctx.Path()) != "/favicon.ico" {
-			redirect("/login", 302, ctx)
+	srv.UseMiddleware(func(ctx *server.Context, next func()) {
+		if ctx.Context().UserValue("token") == nil && string(ctx.Context().Path()) != "/login" &&
+			string(ctx.Context().Path()) != "/hp" && string(ctx.Context().Path()) != "/favicon.ico" {
+			redirect("/login", 302, ctx.Context())
 			return
 		}
 		next()
 	})
-	srv.Use(func(ctx *fasthttp.RequestCtx, next func()) {
-		ctx.SetUserValue("isHXRequest", string(ctx.Request.Header.Peek("HX-Request")) == "true")
+	srv.UseMiddleware(func(ctx *server.Context, next func()) {
+		ctx.Context().SetUserValue("isHXRequest", string(ctx.Context().Request.Header.Peek("HX-Request")) == "true")
 		next()
 	})
 
-	srv.GET("/hp", func(ctx *fasthttp.RequestCtx) error {
-		ctx.SetStatusCode(200)
-		ctx.SetBody(nil)
+	srv.GET("/hp", false, func(ctx *server.Context) error {
+		ctx.Context().SetStatusCode(200)
+		ctx.Context().SetBody(nil)
 		return nil
 	})
-	srv.GET("/", func(ctx *fasthttp.RequestCtx) error {
-		token := ctx.UserValue("token")
+	srv.GET("/", true, func(ctx *server.Context) error {
+		token := ctx.Context().UserValue("token")
 		userId := token.(*auth.JwtPayload).UserId
 		user, err := mongoClient.GetUser(userId)
 		if err != nil {
 			return err
 		}
 		uri := fmt.Sprintf("/server/%s/channel/%s", user.LastActiveServer.Hex(), user.LastActiveChannel.Hex())
-		redirect(uri, 302, ctx)
+		redirect(uri, 302, ctx.Context())
 		return nil
 	})
-	srv.GET("/messages", func(ctx *fasthttp.RequestCtx) error {
+	srv.GET("/messages", true, func(ctx *server.Context) error {
 		dataMap := make(map[string]any)
 		msgs, err := mongoClient.GetMessages("", "")
 		if err == nil {
 			dataMap["Messages"] = msgs
 		}
-		ctx.Response.Header.Set("HX-Retarget", "main-window_messageWindow")
-		ctx.Response.Header.Set("HX-Reswap", "innerHTML")
-		return templates.ExecuteTemplate(ctx, "messages", addHXRequest(dataMap, ctx))
+		ctx.Context().Response.Header.Set("HX-Retarget", "main-window_messageWindow")
+		ctx.Context().Response.Header.Set("HX-Reswap", "innerHTML")
+		return templates.ExecuteTemplate(ctx.Context(), "messages", addHXRequest(dataMap, ctx.Context()))
 	})
-	srv.GET("/login", func(ctx *fasthttp.RequestCtx) error {
-		if ctx.UserValue("token") != nil {
-			redirect("/", 302, ctx)
+	srv.GET("/login", false, func(ctx *server.Context) error {
+		if ctx.Context().UserValue("token") != nil {
+			redirect("/", 302, ctx.Context())
 			return nil
 		}
 
 		dataMap := make(map[string]any)
 		dataMap["title"] = "Login - Disgord"
-		err := templates.ExecuteTemplate(ctx, "loginPage", addHXRequest(dataMap, ctx))
+		err := templates.ExecuteTemplate(ctx.Context(), "loginPage", addHXRequest(dataMap, ctx.Context()))
 		if err != nil {
 			log.Print(err)
 			return err
 		}
 		return nil
 	})
-	srv.GET("/logout", func(ctx *fasthttp.RequestCtx) error {
+	srv.GET("/logout", true, func(ctx *server.Context) error {
 		sCookie, rCookie := createTokenCookies("", "", true)
-		ctx.Response.Header.SetCookie(sCookie)
-		ctx.Response.Header.SetCookie(rCookie)
-		redirect("/", 302, ctx)
+		ctx.Context().Response.Header.SetCookie(sCookie)
+		ctx.Context().Response.Header.SetCookie(rCookie)
+		redirect("/", 302, ctx.Context())
 		return nil
 	})
-	srv.GET("/settings", func(ctx *fasthttp.RequestCtx) error {
+	srv.GET("/settings", true, func(ctx *server.Context) error {
 		dataMap := make(map[string]any)
-		token := ctx.UserValue("token")
+		token := ctx.Context().UserValue("token")
 		dataMap["avatarUrl"] = fmt.Sprintf("https://storage.googleapis.com/disgord-files/%s", token.(*auth.JwtPayload).AvatarObjectId)
-		err := templates.ExecuteTemplate(ctx, "userSettingsModal", dataMap)
+		err := templates.ExecuteTemplate(ctx.Context(), "userSettingsModal", dataMap)
 		if err != nil {
 			log.Print(err)
 			return err
 		}
 		return nil
 	})
-	srv.GET("/server/{serverId}/channel/{channelId}", func(ctx *fasthttp.RequestCtx) error {
+	srv.GET("/server/{serverId}/channel/{channelId}", true, func(ctx *server.Context) error {
 		dataMap := make(map[string]any)
-		token := ctx.UserValue("token")
+		token := ctx.Context().UserValue("token")
 		dataMap["Username"] = token.(*auth.JwtPayload).Username
 		dataMap["AvatarObjectId"] = token.(*auth.JwtPayload).AvatarObjectId
 		dataMap["title"] = "Disgord"
-		serverId := ctx.UserValue("serverId").(string)
-		channelId := ctx.UserValue("channelId").(string)
+		serverId := ctx.Context().UserValue("serverId").(string)
+		channelId := ctx.Context().UserValue("channelId").(string)
 		dataMap["ServerId"] = serverId
 		dataMap["ChannelId"] = channelId
 		msgs, err := mongoClient.GetMessages(serverId, channelId)
@@ -354,29 +353,29 @@ func main() {
 		if err != nil {
 			log.Println(err)
 		}
-		return templates.ExecuteTemplate(ctx, "indexPage", addHXRequest(dataMap, ctx))
+		return templates.ExecuteTemplate(ctx.Context(), "indexPage", addHXRequest(dataMap, ctx.Context()))
 	})
-	srv.GET("/server/{serverId}", func(ctx *fasthttp.RequestCtx) error {
-		serverId := ctx.UserValue("serverId").(string)
+	srv.GET("/server/{serverId}", true, func(ctx *server.Context) error {
+		serverId := ctx.Context().UserValue("serverId").(string)
 		s, err := mongoClient.GetServer(serverId)
 		if err != nil {
 			return err
 		}
 		uri := fmt.Sprintf("/server/%s/channel/%s", serverId, s.Channels[0].ID.Hex())
-		redirect(uri, 302, ctx)
+		redirect(uri, 302, ctx.Context())
 		return nil
 	})
 
-	srv.GET("/ws", func(ctx *fasthttp.RequestCtx) error {
+	srv.GET("/ws", true, func(ctx *server.Context) error {
 		return nil
 	})
-	srv.GET("/messages/sse/{serverId}/{channelId}", func(ctx *fasthttp.RequestCtx) error {
-		notify := ctx.Done()
-		username := ctx.UserValue("token").(*auth.JwtPayload).Username
-		serverId := ctx.UserValue("serverId").(string)
-		channelId := ctx.UserValue("channelId").(string)
-		ctx.HijackSetNoResponse(true)
-		ctx.Hijack(func(c net.Conn) {
+	srv.GET("/messages/sse/{serverId}/{channelId}", true, func(ctx *server.Context) error {
+		notify := ctx.Context().Done()
+		username := ctx.Context().UserValue("token").(*auth.JwtPayload).Username
+		serverId := ctx.Context().UserValue("serverId").(string)
+		channelId := ctx.Context().UserValue("channelId").(string)
+		ctx.Context().HijackSetNoResponse(true)
+		ctx.Context().Hijack(func(c net.Conn) {
 			client := sseServer.MakeClient(username, serverId, channelId)
 			defer sseServer.DestroyClient(client)
 
@@ -408,9 +407,9 @@ func main() {
 		return nil
 	})
 
-	srv.POST("/server/{serverId}/channel/{channelId}/message/new", func(ctx *fasthttp.RequestCtx) error {
-		serverId := ctx.UserValue("serverId").(string)
-		channelId := ctx.UserValue("channelId").(string)
+	srv.POST("/server/{serverId}/channel/{channelId}/message/new", true, func(ctx *server.Context) error {
+		serverId := ctx.Context().UserValue("serverId").(string)
+		channelId := ctx.Context().UserValue("channelId").(string)
 		serverObj, err := primitive.ObjectIDFromHex(serverId)
 		if err != nil {
 			return err
@@ -420,9 +419,9 @@ func main() {
 			return err
 		}
 
-		args := ctx.PostArgs()
+		args := ctx.Context().PostArgs()
 		if !args.Has("message") {
-			ctx.SetStatusCode(400)
+			ctx.Context().SetStatusCode(400)
 			return nil
 		}
 
@@ -432,7 +431,7 @@ func main() {
 			msgStr, cmd = handleCommand(msgStr)
 		}
 
-		authId, err := primitive.ObjectIDFromHex(ctx.UserValue("token").(*auth.JwtPayload).UserId)
+		authId, err := primitive.ObjectIDFromHex(ctx.Context().UserValue("token").(*auth.JwtPayload).UserId)
 		if err != nil {
 			return err
 		}
@@ -441,16 +440,16 @@ func main() {
 			Message:        msgStr,
 			AuthorId:       authId,
 			Command:        cmd,
-			Username:       ctx.UserValue("token").(*auth.JwtPayload).Username,
+			Username:       ctx.Context().UserValue("token").(*auth.JwtPayload).Username,
 			Timestamp:      time.Now().UTC(),
 			Type:           0,
-			AvatarObjectId: ctx.UserValue("token").(*auth.JwtPayload).AvatarObjectId,
+			AvatarObjectId: ctx.Context().UserValue("token").(*auth.JwtPayload).AvatarObjectId,
 			Channel:        channelObj,
 			Server:         serverObj,
 		}
 
 		if len(msg.Message) < 1 {
-			ctx.SetStatusCode(400)
+			ctx.Context().SetStatusCode(400)
 			return nil
 		}
 
@@ -469,12 +468,12 @@ func main() {
 		dataMap["Timestamp"] = msg.Timestamp
 		dataMap["Type"] = msg.Type
 
-		ctx.Response.Header.Set("HX-Trigger", "clearMsgTextarea")
-		ctx.Response.Header.Set("HX-Reswap", "none")
+		ctx.Context().Response.Header.Set("HX-Trigger", "clearMsgTextarea")
+		ctx.Context().Response.Header.Set("HX-Reswap", "none")
 
 		var buf bytes.Buffer
-		err = templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
-		ctx.Write(buf.Bytes())
+		err = templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx.Context()))
+		_, _ = ctx.Context().Write(buf.Bytes())
 		if err == nil {
 			html := string(buf.Bytes())
 			html = strings.ReplaceAll(html, "\r", "")
@@ -485,10 +484,10 @@ func main() {
 
 		return err
 	})
-	srv.POST("/message/new", func(ctx *fasthttp.RequestCtx) error {
-		args := ctx.PostArgs()
+	srv.POST("/message/new", true, func(ctx *server.Context) error {
+		args := ctx.Context().PostArgs()
 		if !args.Has("message") {
-			ctx.SetStatusCode(400)
+			ctx.Context().SetStatusCode(400)
 			return nil
 		}
 
@@ -498,7 +497,7 @@ func main() {
 			msgStr, cmd = handleCommand(msgStr)
 		}
 
-		authId, err := primitive.ObjectIDFromHex(ctx.UserValue("token").(*auth.JwtPayload).UserId)
+		authId, err := primitive.ObjectIDFromHex(ctx.Context().UserValue("token").(*auth.JwtPayload).UserId)
 		if err != nil {
 			return err
 		}
@@ -507,14 +506,14 @@ func main() {
 			Message:        msgStr,
 			AuthorId:       authId,
 			Command:        cmd,
-			Username:       ctx.UserValue("token").(*auth.JwtPayload).Username,
+			Username:       ctx.Context().UserValue("token").(*auth.JwtPayload).Username,
 			Timestamp:      time.Now().UTC(),
 			Type:           0,
-			AvatarObjectId: ctx.UserValue("token").(*auth.JwtPayload).AvatarObjectId,
+			AvatarObjectId: ctx.Context().UserValue("token").(*auth.JwtPayload).AvatarObjectId,
 		}
 
 		if len(msg.Message) < 1 {
-			ctx.SetStatusCode(400)
+			ctx.Context().SetStatusCode(400)
 			return nil
 		}
 
@@ -533,12 +532,12 @@ func main() {
 		dataMap["Timestamp"] = msg.Timestamp
 		dataMap["Type"] = msg.Type
 
-		ctx.Response.Header.Set("HX-Trigger", "clearMsgTextarea")
-		ctx.Response.Header.Set("HX-Reswap", "none")
+		ctx.Context().Response.Header.Set("HX-Trigger", "clearMsgTextarea")
+		ctx.Context().Response.Header.Set("HX-Reswap", "none")
 
 		var buf bytes.Buffer
-		err = templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx))
-		ctx.Write(buf.Bytes())
+		err = templates.ExecuteTemplate(&buf, "message", addHXRequest(dataMap, ctx.Context()))
+		_, _ = ctx.Context().Write(buf.Bytes())
 		if err == nil {
 			html := string(buf.Bytes())
 			html = strings.ReplaceAll(html, "\r", "")
@@ -549,8 +548,8 @@ func main() {
 
 		return err
 	})
-	srv.POST("/login", func(ctx *fasthttp.RequestCtx) error {
-		args := ctx.PostArgs()
+	srv.POST("/login", false, func(ctx *server.Context) error {
+		args := ctx.Context().PostArgs()
 		if !args.Has("username") || !args.Has("password") {
 			return nil
 		}
@@ -566,8 +565,8 @@ func main() {
 			if err == mongo.ErrNoDocuments {
 				passHash, err := auth.HashPassword(password)
 				if err != nil {
-					ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-					return sendErrorToast(ctx, "Failed to login or create account")
+					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+					return sendErrorToast(ctx.Context(), "Failed to login or create account")
 				}
 				user = User{
 					Username:      username,
@@ -576,18 +575,18 @@ func main() {
 				}
 				_, err = mongoClient.CreateUser(&user)
 				if err != nil {
-					ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-					return sendErrorToast(ctx, "Failed to login or create account")
+					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+					return sendErrorToast(ctx.Context(), "Failed to login or create account")
 				}
 			} else {
-				ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-				return sendErrorToast(ctx, "Failed to login or create account")
+				ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+				return sendErrorToast(ctx.Context(), "Failed to login or create account")
 			}
 		}
 
 		if b, err := auth.VerifyPassword(password, user.Password); b == false || err != nil {
-			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-			return sendErrorToast(ctx, "Failed to login or create account")
+			ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+			return sendErrorToast(ctx.Context(), "Failed to login or create account")
 		}
 
 		jwtPayload := &auth.JwtPayload{
@@ -599,63 +598,67 @@ func main() {
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
 		if err != nil {
-			ctx.Response.Header.Set("HX-Trigger", "loginFailed")
-			return sendErrorToast(ctx, "Failed to login or create account")
+			ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+			return sendErrorToast(ctx.Context(), "Failed to login or create account")
 		}
 
 		sCookie, rCookie := createTokenCookies(sToken, rToken, false)
-		ctx.Response.Header.SetCookie(sCookie)
-		ctx.Response.Header.SetCookie(rCookie)
-		redirect("/", 302, ctx)
+		ctx.Context().Response.Header.SetCookie(sCookie)
+		ctx.Context().Response.Header.SetCookie(rCookie)
+		redirect("/", 302, ctx.Context())
 		return nil
 	})
-	srv.POST("/user/settings", func(ctx *fasthttp.RequestCtx) error {
+	srv.POST("/user/settings", true, func(ctx *server.Context) error {
 		// TODO goroutine the file upload/image conversion and compression
-		m, err := ctx.Request.MultipartForm()
+		m, err := ctx.Context().Request.MultipartForm()
 
 		formFile, ok := m.File["avatar"]
 		if !ok || len(formFile) != 1 {
-			return sendErrorToast(ctx, "Failed to update settings")
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 
 		file, err := formFile[0].Open()
 		if err != nil {
-			return sendErrorToast(ctx, "Failed to update settings")
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 
 		fileBytes := make([]byte, formFile[0].Size)
 		_, err = file.Read(fileBytes)
 		if err != nil {
-			return sendErrorToast(ctx, "Failed to update settings")
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
-		userId := ctx.UserValue("token").(*auth.JwtPayload).UserId
+		userId := ctx.Context().UserValue("token").(*auth.JwtPayload).UserId
 		objName := "avatar-" + userId
 		bucket := client.Bucket("disgord-files")
 		obj := bucket.Object(objName)
-		wc := obj.NewWriter(ctx)
+		wc := obj.NewWriter(ctx.Context())
 		if _, err = wc.Write(fileBytes); err != nil {
-			wc.Close()
-			return sendErrorToast(ctx, "Failed to update settings")
+			_ = wc.Close()
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		if err := wc.Close(); err != nil {
-			return sendErrorToast(ctx, "Failed to update settings")
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
-		_, err = obj.Attrs(ctx)
+		_, err = obj.Attrs(ctx.Context())
 		if err != nil {
-			log.Fatalf("Failed to get object attributes: %v", err)
+			//log.Fatalf("Failed to get object attributes: %v", err)
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
-		if _, err := obj.Update(ctx, storage.ObjectAttrsToUpdate{
+		if _, err := obj.Update(ctx.Context(), storage.ObjectAttrsToUpdate{
 			ACL: []storage.ACLRule{
 				{Entity: storage.AllUsers, Role: storage.RoleReader},
 			},
 			CacheControl: "public, max-age=15",
 		}); err != nil {
-			log.Fatalf("Failed to update object ACL: %v", err)
+			//log.Fatalf("Failed to update object ACL: %v", err)
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		objectID, err := primitive.ObjectIDFromHex(userId)
 		if err != nil {
-			return sendErrorToast(ctx, "Failed to update settings")
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		filter := bson.M{"_id": objectID} // Filter to identify the document(s) to update
 
@@ -664,21 +667,21 @@ func main() {
 		}
 		coll := mongoClient.client.Database("disgord").Collection("users")
 		if _, err := coll.UpdateOne(context.Background(), filter, update); err != nil {
-			return sendErrorToast(ctx, "Failed to update settings")
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
-		ctx.Response.Header.Set("HX-Trigger", "closeModal")
-		return sendErrorToast(ctx, "User settings saved")
+		ctx.Context().Response.Header.Set("HX-Trigger", "closeModal")
+		return sendErrorToast(ctx.Context(), "User settings saved")
 	})
 
-	srv.DELETE("/message/{messageId}", func(ctx *fasthttp.RequestCtx) error {
-		mId := ctx.UserValue("messageId").(string)
+	srv.DELETE("/message/{messageId}", true, func(ctx *server.Context) error {
+		mId := ctx.Context().UserValue("messageId").(string)
 		message, err := mongoClient.GetMessage(mId)
 		if err != nil {
-			return sendErrorToast(ctx, "Failed to delete message")
+			return sendErrorToast(ctx.Context(), "Failed to delete message")
 		}
 		hex := message.AuthorId.Hex()
-		if hex != ctx.UserValue("token").(*auth.JwtPayload).UserId && strings.ReplaceAll(hex, "0", "") != "" {
-			return sendErrorToast(ctx, "Failed to delete message")
+		if hex != ctx.Context().UserValue("token").(*auth.JwtPayload).UserId && strings.ReplaceAll(hex, "0", "") != "" {
+			return sendErrorToast(ctx.Context(), "Failed to delete message")
 		}
 		sseServer.SendBytes("1", "deleteMessage", []byte("message-"+mId))
 		return mongoClient.DeleteMessage(mId)
