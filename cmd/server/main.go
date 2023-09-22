@@ -26,19 +26,7 @@ import (
 	"time"
 )
 
-type User struct {
-	ID                primitive.ObjectID `bson:"_id"`
-	LastActiveServer  primitive.ObjectID `bson:"lastActiveServer"`
-	LastActiveChannel primitive.ObjectID `bson:"lastActiveChannel"`
-	Username          string             `bson:"username"`
-	LowerUsername     string             `bson:"lowerUsername"`
-	Password          string             `bson:"password"`
-	AvatarObjectId    string             `bson:"avatarObjectId"`
-}
-
 type ServerMemberships struct {
-	ID       primitive.ObjectID `bson:"_id"`
-	UserId   primitive.ObjectID `bson:"userId"`
 	ServerId primitive.ObjectID `bson:"serverId"`
 	IsOwner  bool               `bson:"isOwner"`
 }
@@ -311,50 +299,6 @@ func main() {
 		}
 		return nil
 	})
-	srv.GET("/server/{serverId}/channel/{channelId}", true, func(ctx *server.Context) error {
-		dataMap := make(map[string]any)
-		token := ctx.Context().UserValue("token")
-		dataMap["Username"] = token.(*auth.JwtPayload).Username
-		dataMap["AvatarObjectId"] = token.(*auth.JwtPayload).AvatarObjectId
-		dataMap["title"] = "Disgord"
-		serverId := ctx.Context().UserValue("serverId").(string)
-		channelId := ctx.Context().UserValue("channelId").(string)
-		dataMap["ServerId"] = serverId
-		dataMap["ChannelId"] = channelId
-		msgs, err := mongoClient.GetMessages(serverId, channelId)
-		dataMap["MessagesError"] = err != nil
-		if err == nil {
-			dataMap["Messages"] = msgs
-		}
-		servers, err := mongoClient.GetServers()
-		if err != nil {
-			return err
-		}
-		dataMap["Servers"] = servers
-		for _, s := range servers {
-			if s.ID.Hex() == serverId {
-				dataMap["Server"] = s
-				dataMap["title"] = s.Name + " - Disgord"
-				break
-			}
-		}
-		serverO, err := primitive.ObjectIDFromHex(serverId)
-		if err != nil {
-			return err
-		}
-		channelO, err := primitive.ObjectIDFromHex(channelId)
-		if err != nil {
-			return err
-		}
-		update := bson.M{
-			"$set": bson.M{"lastActiveServer": serverO, "lastActiveChannel": channelO},
-		}
-		err = mongoClient.UpdateUser(token.(*auth.JwtPayload).UserId, update)
-		if err != nil {
-			log.Println(err)
-		}
-		return templates.ExecuteTemplate(ctx.Context(), "indexPage", addHXRequest(dataMap, ctx.Context()))
-	})
 	srv.GET("/server/{serverId}", true, func(ctx *server.Context) error {
 		serverId := ctx.Context().UserValue("serverId").(string)
 		s, err := mongoClient.GetServer(serverId)
@@ -364,6 +308,46 @@ func main() {
 		uri := fmt.Sprintf("/server/%s/channel/%s", serverId, s.Channels[0].ID.Hex())
 		redirect(uri, 302, ctx.Context())
 		return nil
+	})
+
+	// TODO dont like how bloated this func feels
+	srv.GET("/server/{serverId}/channel/{channelId}", true, func(ctx *server.Context) error {
+		token := ctx.Context().UserValue("token")
+		serverId := ctx.Context().UserValue("serverId").(string)
+		channelId := ctx.Context().UserValue("channelId").(string)
+		userId := token.(*auth.JwtPayload).UserId
+		user, err := mongoClient.GetUser(userId)
+		if err != nil {
+			return err
+		}
+		valid := user.HasServerAccess(serverId)
+		if !valid {
+			uri := fmt.Sprintf("/server/%s", user.Servers[0].ServerId.Hex())
+			redirect(uri, 302, ctx.Context())
+			return nil
+		}
+		user.UpdateLastServerAndChannel(mongoClient, serverId, channelId)
+		dataMap := make(map[string]any)
+		dataMap["Username"] = user.Username
+		dataMap["AvatarObjectId"] = user.AvatarObjectId
+		dataMap["title"] = "Disgord"
+		dataMap["ServerId"] = serverId
+		dataMap["ChannelId"] = channelId
+		msgs, err := mongoClient.GetMessages(serverId, channelId)
+		dataMap["MessagesError"] = err != nil
+		if err == nil {
+			dataMap["Messages"] = msgs
+		}
+		servers := user.GetServers(mongoClient)
+		dataMap["Servers"] = servers
+		for _, s := range servers {
+			if s.ID.Hex() == serverId {
+				dataMap["Server"] = s
+				dataMap["title"] = s.Name + " - Disgord"
+				break
+			}
+		}
+		return templates.ExecuteTemplate(ctx.Context(), "indexPage", addHXRequest(dataMap, ctx.Context()))
 	})
 
 	srv.GET("/ws", true, func(ctx *server.Context) error {
@@ -568,16 +552,29 @@ func main() {
 					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 					return sendErrorToast(ctx.Context(), "Failed to login or create account")
 				}
-				user = User{
-					Username:      username,
-					LowerUsername: strings.ToLower(username),
-					Password:      passHash,
-				}
-				_, err = mongoClient.CreateUser(&user)
+				oId, err := primitive.ObjectIDFromHex("65072e04a3eec0a2c2eefc6b")
 				if err != nil {
 					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 					return sendErrorToast(ctx.Context(), "Failed to login or create account")
 				}
+
+				user = User{
+					Username:      username,
+					LowerUsername: strings.ToLower(username),
+					Password:      passHash,
+					Servers: []ServerMemberships{
+						{
+							ServerId: oId,
+							IsOwner:  false,
+						},
+					},
+				}
+				id, err := mongoClient.CreateUser(&user)
+				if err != nil {
+					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+					return sendErrorToast(ctx.Context(), "Failed to login or create account")
+				}
+				user.ID = id
 			} else {
 				ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 				return sendErrorToast(ctx.Context(), "Failed to login or create account")
@@ -587,6 +584,14 @@ func main() {
 		if b, err := auth.VerifyPassword(password, user.Password); b == false || err != nil {
 			ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 			return sendErrorToast(ctx.Context(), "Failed to login or create account")
+		}
+
+		if len(user.Servers) == 0 {
+			err := user.AddServer("65072e04a3eec0a2c2eefc6b", mongoClient)
+			if err != nil {
+				ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
+				return sendErrorToast(ctx.Context(), "Failed to login or create account")
+			}
 		}
 
 		jwtPayload := &auth.JwtPayload{

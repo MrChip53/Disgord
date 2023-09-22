@@ -35,6 +35,7 @@ func (m *MongoClient) CreateUser(user *User) (primitive.ObjectID, error) {
 		"username":      user.Username,
 		"lowerUsername": user.LowerUsername,
 		"password":      user.Password,
+		"servers":       user.Servers,
 	})
 	return o.InsertedID.(primitive.ObjectID), err
 }
