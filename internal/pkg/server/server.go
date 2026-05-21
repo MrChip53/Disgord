@@ -1,13 +1,14 @@
 package server
 
 import (
-	"github.com/valyala/fasthttp"
 	"html/template"
 	"log"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/valyala/fasthttp"
 )
 
 type HandlerFunc = func(ctx *Context) error
@@ -182,7 +183,7 @@ func (s *Server) handleRouter(ctx *fasthttp.RequestCtx) {
 		}
 		err := handler.handler(context)
 		if err != nil {
-			log.Println("error running handler: ", err)
+			log.Printf("error in %s %s: %v\n", method, path, err)
 			s.error(500, ctx)
 		}
 	}

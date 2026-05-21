@@ -5,17 +5,8 @@ import (
 	"Disgord/internal/pkg/server"
 	"Disgord/internal/pkg/sse"
 	"bytes"
-	"cloud.google.com/go/storage"
 	"context"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"github.com/google/uuid"
-	"github.com/joho/godotenv"
-	"github.com/valyala/fasthttp"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"google.golang.org/api/option"
 	"html/template"
 	"io/fs"
 	"log"
@@ -24,6 +15,16 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"cloud.google.com/go/storage"
+	"github.com/fsnotify/fsnotify"
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+	"github.com/valyala/fasthttp"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"google.golang.org/api/option"
 )
 
 type ServerMemberships struct {
@@ -259,7 +260,9 @@ func main() {
 	srv.GET("/messages", true, func(ctx *server.Context) error {
 		dataMap := make(map[string]any)
 		msgs, err := mongoClient.GetMessages("", "")
-		if err == nil {
+		if err != nil {
+			log.Printf("error getting messages: %v", err)
+		} else {
 			dataMap["Messages"] = msgs
 		}
 		ctx.Context().Response.Header.Set("HX-Retarget", "main-window_messageWindow")
@@ -274,12 +277,7 @@ func main() {
 
 		dataMap := make(map[string]any)
 		dataMap["title"] = "Login - Disgord"
-		err := templates.ExecuteTemplate(ctx.Context(), "loginPage", addHXRequest(dataMap, ctx.Context()))
-		if err != nil {
-			log.Print(err)
-			return err
-		}
-		return nil
+		return templates.ExecuteTemplate(ctx.Context(), "loginPage", addHXRequest(dataMap, ctx.Context()))
 	})
 	srv.GET("/logout", true, func(ctx *server.Context) error {
 		sCookie, rCookie := createTokenCookies("", "", true)
@@ -292,12 +290,7 @@ func main() {
 		dataMap := make(map[string]any)
 		token := ctx.Context().UserValue("token")
 		dataMap["avatarUrl"] = fmt.Sprintf("https://storage.googleapis.com/disgord-files/%s", token.(*auth.JwtPayload).AvatarObjectId)
-		err := templates.ExecuteTemplate(ctx.Context(), "userSettingsModal", dataMap)
-		if err != nil {
-			log.Print(err)
-			return err
-		}
-		return nil
+		return templates.ExecuteTemplate(ctx.Context(), "userSettingsModal", dataMap)
 	})
 	srv.GET("/user-settings", true, func(ctx *server.Context) error {
 		return templates.ExecuteTemplate(ctx.Context(), "userSettingsPage", nil)
@@ -338,7 +331,9 @@ func main() {
 		dataMap["ChannelId"] = channelId
 		msgs, err := mongoClient.GetMessages(serverId, channelId)
 		dataMap["MessagesError"] = err != nil
-		if err == nil {
+		if err != nil {
+			log.Printf("error getting messages: %v", err)
+		} else {
 			dataMap["Messages"] = msgs
 		}
 		servers := user.GetServers(mongoClient)
@@ -373,6 +368,7 @@ func main() {
 			httpMsg = append(httpMsg, []byte("Keep-Alive: timeout=15\r\n")...)
 			httpMsg = append(httpMsg, []byte("\r\n")...)
 			if _, err := c.Write(httpMsg); err != nil {
+				log.Printf("error writing SSE headers: %v", err)
 				return
 			}
 
@@ -381,9 +377,11 @@ func main() {
 				case event := <-client.Channel:
 					msg := event.String()
 					if err := c.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
+						log.Printf("error setting SSE deadline: %v", err)
 						return
 					}
 					if _, err := c.Write([]byte(msg)); err != nil {
+						log.Printf("error writing SSE event: %v", err)
 						return
 					}
 				case <-notify:
@@ -552,6 +550,7 @@ func main() {
 			if err == mongo.ErrNoDocuments {
 				passHash, err := auth.HashPassword(password)
 				if err != nil {
+					log.Printf("error hashing password: %v", err)
 					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 					return sendErrorToast(ctx.Context(), "Failed to login or create account")
 				}
@@ -574,17 +573,22 @@ func main() {
 				}
 				id, err := mongoClient.CreateUser(&user)
 				if err != nil {
+					log.Printf("error creating user: %v", err)
 					ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 					return sendErrorToast(ctx.Context(), "Failed to login or create account")
 				}
 				user.ID = id
 			} else {
+				log.Printf("error finding user: %v", err)
 				ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 				return sendErrorToast(ctx.Context(), "Failed to login or create account")
 			}
 		}
 
 		if b, err := auth.VerifyPassword(password, user.Password); b == false || err != nil {
+			if err != nil {
+				log.Printf("error verifying password: %v", err)
+			}
 			ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 			return sendErrorToast(ctx.Context(), "Failed to login or create account")
 		}
@@ -592,6 +596,7 @@ func main() {
 		if len(user.Servers) == 0 {
 			err := user.AddServer("65072e04a3eec0a2c2eefc6b", mongoClient)
 			if err != nil {
+				log.Printf("error adding server to user: %v", err)
 				ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 				return sendErrorToast(ctx.Context(), "Failed to login or create account")
 			}
@@ -606,6 +611,7 @@ func main() {
 
 		sToken, rToken, err := auth.GenerateTokens(jwtPayload)
 		if err != nil {
+			log.Printf("error generating tokens: %v", err)
 			ctx.Context().Response.Header.Set("HX-Trigger", "loginFailed")
 			return sendErrorToast(ctx.Context(), "Failed to login or create account")
 		}
@@ -619,6 +625,10 @@ func main() {
 	srv.POST("/user/settings", true, func(ctx *server.Context) error {
 		// TODO goroutine the file upload/image conversion and compression
 		m, err := ctx.Context().Request.MultipartForm()
+		if err != nil {
+			log.Printf("error parsing multipart form: %v", err)
+			return sendErrorToast(ctx.Context(), "Failed to update settings")
+		}
 
 		formFile, ok := m.File["avatar"]
 		if !ok || len(formFile) != 1 {
@@ -627,6 +637,7 @@ func main() {
 
 		file, err := formFile[0].Open()
 		if err != nil {
+			log.Printf("error opening avatar file: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		defer func() {
@@ -636,6 +647,7 @@ func main() {
 		fileBytes := make([]byte, formFile[0].Size)
 		_, err = file.Read(fileBytes)
 		if err != nil {
+			log.Printf("error reading avatar file: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		userId := ctx.Context().UserValue("token").(*auth.JwtPayload).UserId
@@ -644,15 +656,17 @@ func main() {
 		obj := bucket.Object(objName)
 		wc := obj.NewWriter(ctx.Context())
 		if _, err = wc.Write(fileBytes); err != nil {
+			log.Printf("error writing to GCS: %v", err)
 			_ = wc.Close()
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		if err := wc.Close(); err != nil {
+			log.Printf("error closing GCS writer: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		_, err = obj.Attrs(ctx.Context())
 		if err != nil {
-			//log.Fatalf("Failed to get object attributes: %v", err)
+			log.Printf("error getting GCS object attributes: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		if _, err := obj.Update(ctx.Context(), storage.ObjectAttrsToUpdate{
@@ -661,11 +675,12 @@ func main() {
 			},
 			CacheControl: "public, max-age=15",
 		}); err != nil {
-			//log.Fatalf("Failed to update object ACL: %v", err)
+			log.Printf("error updating GCS object ACL: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		objectID, err := primitive.ObjectIDFromHex(userId)
 		if err != nil {
+			log.Printf("error parsing user object ID: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		filter := bson.M{"_id": objectID} // Filter to identify the document(s) to update
@@ -675,6 +690,7 @@ func main() {
 		}
 		coll := mongoClient.client.Database("disgord").Collection("users")
 		if _, err := coll.UpdateOne(context.Background(), filter, update); err != nil {
+			log.Printf("error updating user avatar: %v", err)
 			return sendErrorToast(ctx.Context(), "Failed to update settings")
 		}
 		ctx.Context().Response.Header.Set("HX-Trigger", "closeModal")
@@ -685,6 +701,7 @@ func main() {
 		mId := ctx.Context().UserValue("messageId").(string)
 		message, err := mongoClient.GetMessage(mId)
 		if err != nil {
+			log.Printf("error getting message %s: %v", mId, err)
 			return sendErrorToast(ctx.Context(), "Failed to delete message")
 		}
 		hex := message.AuthorId.Hex()
